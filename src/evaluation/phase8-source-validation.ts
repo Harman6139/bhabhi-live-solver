@@ -117,7 +117,7 @@ const commandResultSchema = z
     completedAt: z.iso.datetime(),
     exitCode: z.literal(0),
     signal: z.null(),
-    logPath: z.string().regex(/^logs\/[0-9]{2}-[a-z-]+\.log$/u),
+    logPath: z.string().regex(/^logs\/[0-9]{2}-[a-z0-9-]+\.log$/u),
     logSha256: sha256Schema,
     logByteCount: z.int().nonnegative(),
   })
