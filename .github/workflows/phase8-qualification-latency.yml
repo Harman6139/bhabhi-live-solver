@@ -1,0 +1,91 @@
+name: Phase 8 qualification latency
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase8-qualification-latency
+  cancel-in-progress: false
+
+jobs:
+  qualification-latency:
+    name: Qualification browser latency
+    runs-on: windows-2025
+    timeout-minutes: 360
+    env:
+      SOURCE_REF: phase8-source-ed433af
+      AUTHORITY_DIR: artifacts/evaluation/eval-v1/qualification/authorities/phase8-reference-qualification-20260728-a
+      OUTPUT_PARENT: artifacts/evaluation/eval-v1/qualification/phase8-latency
+      RUN_ID: phase8-reference-qualification-latency-20260728-actions
+      CONFIG_ID: p8-r-hard-balanced-v1
+    steps:
+      - name: Check out the frozen scientific source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
+
+      - name: Restore the byte-exact qualification authority
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git fetch --no-tags origin ci-orchestration:refs/remotes/origin/ci-orchestration
+          $archive = Join-Path $env:RUNNER_TEMP 'qualification-authority.tar'
+          git archive --format=tar --output=$archive origin/ci-orchestration ci-inputs/qualification
+          tar -xf $archive -C $env:RUNNER_TEMP
+          New-Item -ItemType Directory -Force -Path $env:AUTHORITY_DIR | Out-Null
+          Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'ci-inputs/qualification') -Force |
+            Copy-Item -Destination $env:AUTHORITY_DIR -Recurse -Force
+          if (git status --short --untracked-files=all) {
+            throw 'Restoring ignored qualification evidence made the frozen worktree dirty.'
+          }
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install chromium
+
+      - name: Build the exact evaluation-only route
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:BHABHI_RELEASE_BUNDLE_PATH = (Resolve-Path "$env:AUTHORITY_DIR/evaluation-bundle.json").Path
+          $env:BHABHI_RELEASE_EXPECT_MODE = 'evaluation-only'
+          npm run build
+
+      - name: Run the full evidence-eligible browser schedule
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npx tsx scripts/bench-phase8-latency.ts `
+            --evidence-eligible `
+            --run-id $env:RUN_ID `
+            --manifest "$env:AUTHORITY_DIR/qualification-manifest.json" `
+            --corpus "$env:AUTHORITY_DIR/latency-corpus.json" `
+            --config-id $env:CONFIG_ID `
+            --dist dist `
+            --output-parent $env:OUTPUT_PARENT `
+            --power-mode 'GitHub Actions Windows hosted runner' `
+            --power-source 'provider-managed hosted runner' `
+            --background-load 'dedicated standard hosted runner; provider load uncontrolled'
+
+      - name: Upload immutable qualification latency evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-qualification-latency-${{ github.run_id }}
+          path: |
+            ${{ env.OUTPUT_PARENT }}/${{ env.RUN_ID }}
+            ${{ env.OUTPUT_PARENT }}/.incomplete-${{ env.RUN_ID }}*
+          if-no-files-found: warn
+          retention-days: 7
