@@ -1,0 +1,75 @@
+name: Phase 8 remote evidence
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase8-remote-evidence
+  cancel-in-progress: false
+
+jobs:
+  qualification-terminal:
+    name: Qualification terminal matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      SOURCE_REF: phase8-source-ed433af
+      AUTHORITY_DIR: artifacts/evaluation/eval-v1/qualification/authorities/phase8-reference-qualification-20260728-a
+      OUTPUT_ROOT: artifacts/evaluation/eval-v1/qualification/terminal
+      RUN_ID: phase8-reference-qualification-terminal-20260728-actions
+    steps:
+      - name: Check out the frozen scientific source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
+
+      - name: Restore the opened qualification authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin ci-orchestration:refs/remotes/origin/ci-orchestration
+          mkdir -p "$AUTHORITY_DIR"
+          git show origin/ci-orchestration:ci-inputs/qualification/phase8-manifest-authority.json > "$AUTHORITY_DIR/phase8-manifest-authority.json"
+          git show origin/ci-orchestration:ci-inputs/qualification/qualification-opening.json > "$AUTHORITY_DIR/qualification-opening.json"
+          git show origin/ci-orchestration:ci-inputs/qualification/model-not-applicable.json > "$AUTHORITY_DIR/model-not-applicable.json"
+          sha256sum "$AUTHORITY_DIR"/*.json
+          test -z "$(git status --short --untracked-files=no)"
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Run the qualification terminal matrix on all runner cores
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx tsx scripts/run-phase8-terminal.ts \
+            --scope qualification \
+            --authority "$AUTHORITY_DIR/phase8-manifest-authority.json" \
+            --opening "$AUTHORITY_DIR/qualification-opening.json" \
+            --model "$AUTHORITY_DIR/model-not-applicable.json" \
+            --output-root "$OUTPUT_ROOT" \
+            --run-id "$RUN_ID" \
+            --concurrency 4 | tee qualification-terminal.log
+
+      - name: Upload immutable qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-qualification-terminal-${{ github.run_id }}
+          path: |
+            qualification-terminal.log
+            ${{ env.OUTPUT_ROOT }}/${{ env.RUN_ID }}
+            ${{ env.OUTPUT_ROOT }}/${{ env.RUN_ID }}-statistical-report.json
+            ${{ env.OUTPUT_ROOT }}/.incomplete-${{ env.RUN_ID }}
+          if-no-files-found: warn
+          retention-days: 7
