@@ -1,0 +1,86 @@
+name: Phase 8 final terminal evidence
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase8-final-terminal-evidence
+  cancel-in-progress: false
+
+jobs:
+  final-terminal:
+    name: Untouched final terminal matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      SOURCE_REF: phase8-source-ed433af
+      QUALIFICATION_AUTHORITY: artifacts/evaluation/eval-v1/qualification/authorities/phase8-reference-qualification-20260728-a/phase8-manifest-authority.json
+      FINAL_AUTHORITY_DIR: artifacts/evaluation/eval-v1/final/authorities/phase8-reference-final-20260728-a
+      OUTPUT_ROOT: artifacts/evaluation/eval-v1/final/terminal
+      RUN_ID: phase8-reference-final-terminal-20260728-actions
+    steps:
+      - name: Check out the frozen scientific source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
+
+      - name: Restore the unopened-source final authority inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin ci-orchestration:refs/remotes/origin/ci-orchestration
+          mkdir -p "$(dirname "$QUALIFICATION_AUTHORITY")" "$FINAL_AUTHORITY_DIR"
+          git show origin/ci-orchestration:ci-inputs/qualification/phase8-manifest-authority.json > "$QUALIFICATION_AUTHORITY"
+          for file in \
+            phase8-final-manifest-authority.json \
+            final-opening.json \
+            model-not-applicable.json \
+            selection-attestation.json \
+            selection-attestation.checksum
+          do
+            git show "origin/ci-orchestration:ci-inputs/final/$file" > "$FINAL_AUTHORITY_DIR/$file"
+          done
+          sha256sum "$QUALIFICATION_AUTHORITY" "$FINAL_AUTHORITY_DIR"/*
+          test -z "$(git status --short --untracked-files=no)"
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Run the untouched final matrix on all runner cores
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx tsx scripts/run-phase8-terminal.ts \
+            --scope final \
+            --authority "$FINAL_AUTHORITY_DIR/phase8-final-manifest-authority.json" \
+            --opening "$FINAL_AUTHORITY_DIR/final-opening.json" \
+            --qualification-authority "$QUALIFICATION_AUTHORITY" \
+            --selection "$FINAL_AUTHORITY_DIR/selection-attestation.json" \
+            --selection-checksum "$FINAL_AUTHORITY_DIR/selection-attestation.checksum" \
+            --model "$FINAL_AUTHORITY_DIR/model-not-applicable.json" \
+            --output-root "$OUTPUT_ROOT" \
+            --run-id "$RUN_ID" \
+            --concurrency 4 | tee final-terminal.log
+
+      - name: Upload immutable final evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-final-terminal-${{ github.run_id }}
+          path: |
+            final-terminal.log
+            ${{ env.OUTPUT_ROOT }}/${{ env.RUN_ID }}
+            ${{ env.OUTPUT_ROOT }}/${{ env.RUN_ID }}-statistical-report.json
+            ${{ env.OUTPUT_ROOT }}/.incomplete-${{ env.RUN_ID }}
+          if-no-files-found: warn
+          retention-days: 7

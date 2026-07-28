@@ -1,0 +1,84 @@
+name: Phase 9 release validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact documentation-complete release commit or tag
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase9-release-validation
+  cancel-in-progress: false
+
+jobs:
+  release-validation:
+    name: Exact selected release regression
+    runs-on: windows-2025
+    timeout-minutes: 360
+    env:
+      RELEASE_BUNDLE_DIR: artifacts/release/phase9-reference-release-20260728-a
+      RELEASE_BUNDLE_PATH: artifacts/release/phase9-reference-release-20260728-a/production-release-bundle.json
+      LATENCY_RUN: artifacts/release/latency/phase9-reference-selected-latency-20260728-a
+      VALIDATION_PARENT: artifacts/release/validation
+      VALIDATION_ID: phase9-reference-release-validation-20260728-actions
+    steps:
+      - name: Check out the documentation-complete release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 0
+
+      - name: Restore the selected bundle and laptop latency evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git fetch --no-tags origin ci-orchestration:refs/remotes/origin/ci-orchestration
+          $archive = Join-Path $env:RUNNER_TEMP 'phase9-release-inputs.tar'
+          git archive --format=tar --output=$archive origin/ci-orchestration ci-inputs/release
+          tar -xf $archive -C $env:RUNNER_TEMP
+          New-Item -ItemType Directory -Force -Path $env:RELEASE_BUNDLE_DIR | Out-Null
+          New-Item -ItemType Directory -Force -Path (Split-Path $env:LATENCY_RUN) | Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'ci-inputs/release/production-release-bundle.json') -Destination $env:RELEASE_BUNDLE_PATH
+          Copy-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'ci-inputs/release/selected-latency') -Destination $env:LATENCY_RUN -Recurse
+          Get-FileHash -Algorithm SHA256 -LiteralPath $env:RELEASE_BUNDLE_PATH
+          if (git status --short --untracked-files=all) {
+            throw 'Restoring ignored release evidence made the release worktree dirty.'
+          }
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install chromium
+
+      - name: Run exact selected-release validation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npx tsx scripts/run-phase9-release-validation.ts `
+            --release-bundle $env:RELEASE_BUNDLE_PATH `
+            --latency-run $env:LATENCY_RUN `
+            --dist dist `
+            --output-parent $env:VALIDATION_PARENT `
+            --attestation-id $env:VALIDATION_ID
+
+      - name: Upload release attestation and command logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase9-release-validation-${{ github.run_id }}
+          path: |
+            ${{ env.VALIDATION_PARENT }}/${{ env.VALIDATION_ID }}
+          if-no-files-found: warn
+          retention-days: 7
