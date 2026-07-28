@@ -1,0 +1,11 @@
+# Project-scoped Codex configuration for the long-running solver build.
+# This project is intentionally authorized for unrestricted local development.
+
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+web_search = "live"
+
+[features]
+goals = true
+multi_agent = true
+shell_tool = true

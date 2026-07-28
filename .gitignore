@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+.vite/
+.playwright-cli/
+*.log
+
+# Immutable raw evidence is retained locally and catalogued in documentation,
+# but is regenerated rather than committed (the current corpus is hundreds of
+# MiB and qualification/final runs are larger).
+artifacts/
+
+# Local scratch/output folders supplied by the Codex workspace.
+work/
+outputs/
