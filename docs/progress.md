@@ -714,6 +714,25 @@ artifact verification strategy, calibration, smoke, primary,
 captured stderr       empty
 ```
 
+Phase 8 qualification correction:
+
+```text
+superseded source      ed433af3bc7cf07539b75d9559ae52bd81d431c2
+terminal Actions run   30404793254 (abandoned after source invalidation)
+latency Actions run    30407361217 (failed; diagnostic only)
+failed observations    4,415 / 4,415
+failure                benchmark instantiated the live worker, which correctly
+                       rejected the evaluation-only qualification bundle
+change control         ADR 0010
+solver/runtime effect  none; the live release firewall and solver budgets are
+                       unchanged
+replacement policy     create a new clean source attestation and authority,
+                       then rerun qualification and final evidence on hosted
+                       GitHub Actions runners
+hardware override      explicit post-opening user direction permits hosted
+                       runner evidence instead of target-laptop evidence
+```
+
 ## Open risks
 
 - Household rules vary materially around taking another hand, zero cards with

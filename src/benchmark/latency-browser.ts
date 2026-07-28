@@ -8,9 +8,10 @@ import type { SolverBudgetId } from "../search";
 import {
   AnalysisWorkerClient,
   createAnalysisWorkerRequest,
-  createBrowserAnalysisWorker,
+  createBrowserEvaluationAnalysisWorker,
   type AnalysisBinding,
   type AnalysisClientOutcome,
+  type AnalysisWorkerLike,
 } from "../worker";
 import {
   LATENCY_THRESHOLDS_MS,
@@ -140,6 +141,10 @@ type PerformanceWithMemory = Performance & {
 type NavigatorWithDeviceMemory = Navigator & {
   readonly deviceMemory?: number;
 };
+
+export function createBrowserLatencyAnalysisWorker(): AnalysisWorkerLike {
+  return createBrowserEvaluationAnalysisWorker();
+}
 
 function assertNonnegativeSafeInteger(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value < 0) {
@@ -535,7 +540,7 @@ class BrowserHarnessImplementation implements BrowserLatencyHarness {
       input.sampleIndex.toString(),
     ].join("/");
     const fallbackRequestId = stableHash({ measurementId, kind: "fallback" });
-    const client = new AnalysisWorkerClient(createBrowserAnalysisWorker);
+    const client = new AnalysisWorkerClient(createBrowserLatencyAnalysisWorker);
     const heapBefore = readJsHeap();
     const monitor = new LongTaskMonitor();
     const startedAt = performance.now();
@@ -743,7 +748,7 @@ class BrowserHarnessImplementation implements BrowserLatencyHarness {
       input.raceIndex % 2 === 0
         ? ("supersede" as const)
         : ("invalidate-then-restart" as const);
-    const client = new AnalysisWorkerClient(createBrowserAnalysisWorker);
+    const client = new AnalysisWorkerClient(createBrowserLatencyAnalysisWorker);
     const monitor = new LongTaskMonitor();
     const startedAt = performance.now();
     const oldRequest = createAnalysisWorkerRequest({
