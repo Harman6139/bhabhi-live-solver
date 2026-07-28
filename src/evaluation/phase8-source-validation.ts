@@ -540,12 +540,15 @@ async function runNpmCommand(input: {
 }): Promise<Phase8SourceValidationCommandResult> {
   const startedAt = new Date().toISOString();
   const chunks: Buffer[] = [];
-  const executable = process.platform === "win32" ? "npm.cmd" : "npm";
+  const npmCli = process.env.npm_execpath;
+  const executable = npmCli === undefined ? "npm" : process.execPath;
+  const args =
+    npmCli === undefined ? [...input.npmArgs] : [npmCli, ...input.npmArgs];
   const outcome = await new Promise<{
     readonly exitCode: number | null;
     readonly signal: NodeJS.Signals | null;
   }>((resolvePromise, rejectPromise) => {
-    const child = spawn(executable, [...input.npmArgs], {
+    const child = spawn(executable, args, {
       cwd: input.projectRoot,
       env: process.env,
       shell: false,

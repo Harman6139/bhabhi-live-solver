@@ -43,8 +43,12 @@ type Options = Readonly<{
 }>;
 
 const PROJECT_ROOT = resolve(".");
-const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
-const NPX = process.platform === "win32" ? "npx.cmd" : "npx";
+const NPM_CLI = process.env.npm_execpath;
+const NPM = NPM_CLI === undefined ? "npm" : process.execPath;
+
+function npmArgs(args: readonly string[]): readonly string[] {
+  return NPM_CLI === undefined ? args : [NPM_CLI, ...args];
+}
 
 function argument(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -287,13 +291,21 @@ async function main(): Promise<void> {
 
   let worktreeAdded = false;
   try {
-    await run("format", NPM, ["run", "format:check"]);
-    await run("lint", NPM, ["run", "lint"]);
-    await run("typecheck", NPM, ["run", "typecheck"]);
-    await run("unit-regression", NPM, ["test"]);
-    await run("selected-production-build", NPM, ["run", "build"]);
-    await run("debug-truth-firewall", NPM, ["run", "test:truth-firewall"]);
-    await run("product-e2e-accessibility", NPX, ["playwright", "test"]);
+    await run("format", NPM, npmArgs(["run", "format:check"]));
+    await run("lint", NPM, npmArgs(["run", "lint"]));
+    await run("typecheck", NPM, npmArgs(["run", "typecheck"]));
+    await run("unit-regression", NPM, npmArgs(["test"]));
+    await run("selected-production-build", NPM, npmArgs(["run", "build"]));
+    await run(
+      "debug-truth-firewall",
+      NPM,
+      npmArgs(["run", "test:truth-firewall"]),
+    );
+    await run(
+      "product-e2e-accessibility",
+      NPM,
+      npmArgs(["exec", "--", "playwright", "test"]),
+    );
 
     const build = await captureDirectorySnapshot(input.distPath);
     const latency = await verifyLatencyArtifacts(input.latencyRun);
@@ -333,19 +345,25 @@ async function main(): Promise<void> {
       {},
     );
     worktreeAdded = true;
-    await run("readme-install", NPM, ["ci"], cleanWorktree, {});
+    await run("readme-install", NPM, npmArgs(["ci"]), cleanWorktree, {});
     await run(
       "readme-typecheck",
       NPM,
-      ["run", "typecheck"],
+      npmArgs(["run", "typecheck"]),
       cleanWorktree,
       releaseEnvironment,
     );
-    await run("readme-test", NPM, ["test"], cleanWorktree, releaseEnvironment);
+    await run(
+      "readme-test",
+      NPM,
+      npmArgs(["test"]),
+      cleanWorktree,
+      releaseEnvironment,
+    );
     await run(
       "readme-play-e2e",
       NPM,
-      ["run", "test:e2e"],
+      npmArgs(["run", "test:e2e"]),
       cleanWorktree,
       releaseEnvironment,
     );
