@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SOURCE_REF: phase8-source-9b0ccdc
+  SOURCE_REF: phase8-source-1b907b1
   QUALIFICATION_AUTHORITY_ID: phase8-reference-qualification-20260728-b
   QUALIFICATION_TERMINAL_ID: phase8-reference-qualification-terminal-20260728-b-actions
   QUALIFICATION_LATENCY_ID: phase8-reference-qualification-latency-20260728-b-actions
