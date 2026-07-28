@@ -24,6 +24,7 @@ env:
   RELEASE_ID: phase9-reference-release-20260728-b
   SELECTED_LATENCY_ID: phase9-reference-selected-latency-20260728-b-actions
   CONFIG_ID: p8-r-hard-balanced-v1
+  CI_LOG_DIR: artifacts/ci-logs
 
 jobs:
   prepare:
@@ -66,8 +67,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$CI_LOG_DIR"
           npx tsx scripts/prepare-phase8-reference-authority.ts \
-            --authority-id "$QUALIFICATION_AUTHORITY_ID" | tee prepare.log
+            --authority-id "$QUALIFICATION_AUTHORITY_ID" | tee "$CI_LOG_DIR/prepare.log"
 
       - name: Create qualification browser inputs
         shell: bash
@@ -89,7 +91,7 @@ jobs:
         with:
           name: phase8-prepared-${{ github.run_id }}
           path: |
-            prepare.log
+            ${{ env.CI_LOG_DIR }}/prepare.log
             artifacts/evaluation/eval-v1/qualification/authorities/${{ env.QUALIFICATION_AUTHORITY_ID }}
           if-no-files-found: error
           retention-days: 7
@@ -137,6 +139,7 @@ jobs:
         run: |
           set -euo pipefail
           qa="artifacts/evaluation/eval-v1/qualification/authorities/$QUALIFICATION_AUTHORITY_ID"
+          mkdir -p "$CI_LOG_DIR"
           npx tsx scripts/run-phase8-terminal.ts \
             --scope qualification \
             --authority "$qa/phase8-manifest-authority.json" \
@@ -144,7 +147,7 @@ jobs:
             --model "$qa/model-not-applicable.json" \
             --output-root artifacts/evaluation/eval-v1/qualification/terminal \
             --run-id "$QUALIFICATION_TERMINAL_ID" \
-            --concurrency 4 | tee qualification-terminal.log
+            --concurrency 4 | tee "$CI_LOG_DIR/qualification-terminal.log"
 
       - name: Upload immutable qualification terminal evidence
         if: always()
@@ -152,7 +155,7 @@ jobs:
         with:
           name: phase8-qualification-terminal-${{ github.run_id }}
           path: |
-            qualification-terminal.log
+            ${{ env.CI_LOG_DIR }}/qualification-terminal.log
             artifacts/evaluation/eval-v1/qualification/terminal/${{ env.QUALIFICATION_TERMINAL_ID }}
             artifacts/evaluation/eval-v1/qualification/terminal/${{ env.QUALIFICATION_TERMINAL_ID }}-statistical-report.json
             artifacts/evaluation/eval-v1/qualification/terminal/.incomplete-${{ env.QUALIFICATION_TERMINAL_ID }}
@@ -331,20 +334,21 @@ jobs:
           qa="artifacts/evaluation/eval-v1/qualification/authorities/$QUALIFICATION_AUTHORITY_ID"
           terminal="artifacts/evaluation/eval-v1/qualification/terminal/$QUALIFICATION_TERMINAL_ID"
           latency="artifacts/evaluation/eval-v1/qualification/phase8-latency/$QUALIFICATION_LATENCY_ID"
+          mkdir -p "$CI_LOG_DIR"
           npx tsx scripts/qualify-phase8-reference.ts \
             --authority-directory "$qa" \
             --terminal-run "$terminal" \
             --terminal-report "${terminal}-statistical-report.json" \
             --latency-run "$latency" \
             --bundle-id "$QUALIFICATION_BUNDLE_ID" \
-            --final-authority-id "$FINAL_AUTHORITY_ID" | tee qualify.log
+            --final-authority-id "$FINAL_AUTHORITY_ID" | tee "$CI_LOG_DIR/qualify.log"
 
       - name: Upload qualification decision and final authority
         uses: actions/upload-artifact@v4
         with:
           name: phase8-qualified-${{ github.run_id }}
           path: |
-            qualify.log
+            ${{ env.CI_LOG_DIR }}/qualify.log
             artifacts/evaluation/eval-v1/qualification/evidence-bundles/${{ env.QUALIFICATION_BUNDLE_ID }}
             artifacts/evaluation/eval-v1/final/authorities/${{ env.FINAL_AUTHORITY_ID }}
           if-no-files-found: error
@@ -404,6 +408,7 @@ jobs:
           set -euo pipefail
           qa="artifacts/evaluation/eval-v1/qualification/authorities/$QUALIFICATION_AUTHORITY_ID"
           final="artifacts/evaluation/eval-v1/final/authorities/$FINAL_AUTHORITY_ID"
+          mkdir -p "$CI_LOG_DIR"
           npx tsx scripts/run-phase8-terminal.ts \
             --scope final \
             --authority "$final/phase8-final-manifest-authority.json" \
@@ -414,7 +419,7 @@ jobs:
             --model "$final/model-not-applicable.json" \
             --output-root "artifacts/evaluation/eval-v1/final/terminal" \
             --run-id "$FINAL_TERMINAL_ID" \
-            --concurrency 4 | tee final-terminal.log
+            --concurrency 4 | tee "$CI_LOG_DIR/final-terminal.log"
 
       - name: Upload immutable final terminal evidence
         if: always()
@@ -422,7 +427,7 @@ jobs:
         with:
           name: phase8-final-terminal-${{ github.run_id }}
           path: |
-            final-terminal.log
+            ${{ env.CI_LOG_DIR }}/final-terminal.log
             artifacts/evaluation/eval-v1/final/terminal/${{ env.FINAL_TERMINAL_ID }}
             artifacts/evaluation/eval-v1/final/terminal/${{ env.FINAL_TERMINAL_ID }}-statistical-report.json
             artifacts/evaluation/eval-v1/final/terminal/.incomplete-${{ env.FINAL_TERMINAL_ID }}
@@ -616,6 +621,7 @@ jobs:
           final_authority="artifacts/evaluation/eval-v1/final/authorities/$FINAL_AUTHORITY_ID"
           final_terminal="artifacts/evaluation/eval-v1/final/terminal/$FINAL_TERMINAL_ID"
           final_latency="artifacts/evaluation/eval-v1/final/phase8-latency/$FINAL_LATENCY_ID"
+          mkdir -p "$CI_LOG_DIR"
           npx tsx scripts/finalize-phase8-reference.ts \
             --final-authority-directory "$final_authority" \
             --qualification-authority-directory "$qa" \
@@ -624,14 +630,14 @@ jobs:
             --terminal-report "${final_terminal}-statistical-report.json" \
             --latency-run "$final_latency" \
             --bundle-id "$FINAL_BUNDLE_ID" \
-            --release-id "$RELEASE_ID" | tee finalize.log
+            --release-id "$RELEASE_ID" | tee "$CI_LOG_DIR/finalize.log"
 
       - name: Upload final attestation and selected bundle
         uses: actions/upload-artifact@v4
         with:
           name: phase8-finalized-${{ github.run_id }}
           path: |
-            finalize.log
+            ${{ env.CI_LOG_DIR }}/finalize.log
             artifacts/evaluation/eval-v1/qualification/evidence-bundles/${{ env.QUALIFICATION_BUNDLE_ID }}
             artifacts/evaluation/eval-v1/final/authorities/${{ env.FINAL_AUTHORITY_ID }}
             artifacts/evaluation/eval-v1/final/evidence-bundles/${{ env.FINAL_BUNDLE_ID }}
