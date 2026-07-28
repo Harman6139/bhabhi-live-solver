@@ -1,0 +1,13 @@
+
+> getaway-live-solver@0.1.0 test:solver
+> vitest run tests/search
+
+
+ RUN  v4.1.10 C:/Users/HP/Documents/Codex/2026-07-27/bhabhi-live-solver
+
+
+ Test Files  20 passed (20)
+      Tests  131 passed (131)
+   Start at  16:17:31
+   Duration  9.54s (transform 2.84s, setup 0ms, import 10.64s, tests 26.18s, environment 16ms)
+

@@ -1,0 +1,13 @@
+
+> getaway-live-solver@0.1.0 test:simulator
+> vitest run tests/simulator
+
+
+ RUN  v4.1.10 C:/Users/HP/Documents/Codex/2026-07-27/bhabhi-live-solver
+
+
+ Test Files  5 passed (5)
+      Tests  98 passed (98)
+   Start at  16:17:27
+   Duration  2.71s (transform 1.34s, setup 0ms, import 3.74s, tests 3.41s, environment 1ms)
+

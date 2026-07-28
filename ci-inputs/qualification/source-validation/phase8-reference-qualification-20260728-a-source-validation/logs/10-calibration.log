@@ -1,0 +1,13 @@
+
+> getaway-live-solver@0.1.0 test:calibration
+> vitest run tests/calibration
+
+
+ RUN  v4.1.10 C:/Users/HP/Documents/Codex/2026-07-27/bhabhi-live-solver
+
+
+ Test Files  12 passed (12)
+      Tests  75 passed (75)
+   Start at  16:17:42
+   Duration  365.00s (transform 3.95s, setup 0ms, import 10.20s, tests 373.09s, environment 4ms)
+

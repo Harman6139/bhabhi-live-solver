@@ -1,0 +1,13 @@
+
+> getaway-live-solver@0.1.0 test:truth-firewall
+> vitest run tests/truth-firewall
+
+
+ RUN  v4.1.10 C:/Users/HP/Documents/Codex/2026-07-27/bhabhi-live-solver
+
+
+ Test Files  2 passed (2)
+      Tests  3 passed (3)
+   Start at  16:17:22
+   Duration  3.04s (transform 442ms, setup 0ms, import 1.86s, tests 1.83s, environment 1ms)
+

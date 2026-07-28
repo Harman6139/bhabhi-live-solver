@@ -1,0 +1,34 @@
+
+> getaway-live-solver@0.1.0 test:e2e
+> npm run build && playwright test
+
+
+> getaway-live-solver@0.1.0 build
+> tsc --noEmit && vite build
+
+[36mvite v8.1.5 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...✓ 166 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/latency.html                                   0.64 kB │ gzip:  0.37 kB
+dist/index.html                                     0.72 kB │ gzip:  0.41 kB
+dist/assets/solver.worker-DWgx5UV8.js             280.00 kB
+dist/assets/evaluation-solver.worker-CP2hrBka.js  280.04 kB
+dist/assets/app-B5Clz3PU.css                       15.21 kB │ gzip:  4.13 kB
+dist/assets/latency-BjsQDGkF.js                    22.24 kB │ gzip:  6.74 kB │ map:    89.86 kB
+dist/assets/worker-CLB9CerS.js                    147.58 kB │ gzip: 40.96 kB │ map:   940.20 kB
+dist/assets/app-CVN0dqqJ.js                       246.54 kB │ gzip: 74.54 kB │ map: 1,014.10 kB
+
+[32m✓ built in 1.28s[39m
+
+Running 6 tests using 4 workers
+
+  -  2 [desktop-chromium] › tests\e2e\manual-game.spec.ts:305:1 › mobile setup and live tracking stay usable without horizontal overflow
+  -  1 [desktop-chromium] › tests\e2e\selected-release.spec.ts:24:1 › selected release publishes current analysis and remains accessible after invalidation
+  -  3 [mobile-chromium] › tests\e2e\manual-game.spec.ts:188:1 › enters, corrects, saves, restores, exports, imports, and completes a full game
+  -  6 [mobile-chromium] › tests\e2e\selected-release.spec.ts:24:1 › selected release publishes current analysis and remains accessible after invalidation
+  ok 5 [mobile-chromium] › tests\e2e\manual-game.spec.ts:305:1 › mobile setup and live tracking stay usable without horizontal overflow (9.2s)
+  ok 4 [desktop-chromium] › tests\e2e\manual-game.spec.ts:188:1 › enters, corrects, saves, restores, exports, imports, and completes a full game (30.1s)
+
+  4 skipped
+  2 passed (38.3s)

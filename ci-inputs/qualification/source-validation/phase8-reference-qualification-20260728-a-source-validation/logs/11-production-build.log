@@ -1,0 +1,18 @@
+
+> getaway-live-solver@0.1.0 build
+> tsc --noEmit && vite build
+
+[36mvite v8.1.5 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...✓ 166 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/latency.html                                   0.64 kB │ gzip:  0.37 kB
+dist/index.html                                     0.72 kB │ gzip:  0.41 kB
+dist/assets/solver.worker-DWgx5UV8.js             280.00 kB
+dist/assets/evaluation-solver.worker-CP2hrBka.js  280.04 kB
+dist/assets/app-B5Clz3PU.css                       15.21 kB │ gzip:  4.13 kB
+dist/assets/latency-BjsQDGkF.js                    22.24 kB │ gzip:  6.74 kB │ map:    89.86 kB
+dist/assets/worker-CLB9CerS.js                    147.58 kB │ gzip: 40.96 kB │ map:   940.20 kB
+dist/assets/app-CVN0dqqJ.js                       246.54 kB │ gzip: 74.54 kB │ map: 1,014.10 kB
+
+[32m✓ built in 889ms[39m
