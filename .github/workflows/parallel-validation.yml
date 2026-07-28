@@ -1,0 +1,149 @@
+name: Frozen source parallel validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Frozen source tag or commit to validate
+        required: true
+        default: phase8-source-ed433af
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frozen-source-${{ inputs.source_ref }}
+  cancel-in-progress: false
+
+jobs:
+  validation:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        include:
+          - name: format
+            command: npm run format:check
+            browser: false
+          - name: lint
+            command: npm run lint
+            browser: false
+          - name: typecheck
+            command: npm run typecheck
+            browser: false
+          - name: phase1
+            command: npm run test:phase1
+            browser: false
+          - name: property
+            command: npm run test:property
+            browser: false
+          - name: integration
+            command: npm run test:integration
+            browser: false
+          - name: inference
+            command: npm run test:inference
+            browser: false
+          - name: inference-property
+            command: npm run test:inference-property
+            browser: false
+          - name: truth-firewall
+            command: npm run test:truth-firewall
+            browser: false
+          - name: simulator
+            command: npm run test:simulator
+            browser: false
+          - name: evaluation
+            command: npm run test:evaluation
+            browser: false
+          - name: solver
+            command: npm run test:solver
+            browser: false
+          - name: actor-safety
+            command: npm run test:actor-safety
+            browser: false
+          - name: calibration
+            command: npm run test:calibration
+            browser: false
+          - name: benchmark
+            command: npm run test:benchmark
+            browser: false
+          - name: strategy
+            command: npm run test:strategy
+            browser: false
+          - name: phase7
+            command: npm run test:phase7
+            browser: false
+          - name: phase8-systems
+            command: >-
+              npx vitest run
+              tests/modeling
+              tests/production
+              tests/worker
+              tests/benchmark
+              tests/evaluation/phase8-manifest.test.ts
+              tests/evaluation/phase8-selection-attestations.test.ts
+              tests/evaluation/phase8-statistics.test.ts
+              tests/evaluation/phase8-terminal-artifacts.test.ts
+              tests/evaluation/phase8-terminal-policy.test.ts
+              tests/evaluation/phase8-terminal-runner.test.ts
+              tests/evaluation/source-snapshot.test.ts
+              tests/calibration/phase8-core.test.ts
+              tests/calibration/support-regularization.test.ts
+              tests/search/behavior-weighted-approximate.test.ts
+            browser: false
+          - name: production-build
+            command: npm run build
+            browser: false
+          - name: browser-e2e
+            command: npm run test:e2e
+            browser: true
+
+    steps:
+      - name: Check out frozen source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        if: matrix.browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run ${{ matrix.name }}
+        shell: bash
+        run: |
+          set -o pipefail
+          ${{ matrix.command }} 2>&1 | tee validation.log
+
+      - name: Record shard result
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### ${{ matrix.name }}"
+            echo
+            echo "- source: \`${{ inputs.source_ref }}\`"
+            echo "- runner: \`${{ runner.os }} / ${{ runner.arch }}\`"
+            echo "- attempt: \`${{ github.run_attempt }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain shard log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-${{ matrix.name }}-${{ github.run_attempt }}
+          path: validation.log
+          if-no-files-found: warn
+          retention-days: 7
