@@ -7,8 +7,13 @@ on:
         description: Exact documentation-complete release commit or tag
         required: true
         type: string
+      evidence_run_id:
+        description: Phase 8 confirm-and-release Actions run ID
+        required: true
+        type: string
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -21,11 +26,11 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 360
     env:
-      RELEASE_BUNDLE_DIR: artifacts/release/phase9-reference-release-20260728-a
-      RELEASE_BUNDLE_PATH: artifacts/release/phase9-reference-release-20260728-a/production-release-bundle.json
-      LATENCY_RUN: artifacts/release/latency/phase9-reference-selected-latency-20260728-a
+      RELEASE_BUNDLE_DIR: artifacts/release/phase9-reference-release-20260728-b
+      RELEASE_BUNDLE_PATH: artifacts/release/phase9-reference-release-20260728-b/production-release-bundle.json
+      LATENCY_RUN: artifacts/release/latency/phase9-reference-selected-latency-20260728-b
       VALIDATION_PARENT: artifacts/release/validation
-      VALIDATION_ID: phase9-reference-release-validation-20260728-actions
+      VALIDATION_ID: phase9-reference-release-validation-20260728-b-actions
     steps:
       - name: Check out the documentation-complete release
         uses: actions/checkout@v4
@@ -33,18 +38,34 @@ jobs:
           ref: ${{ inputs.release_ref }}
           fetch-depth: 0
 
-      - name: Restore the selected bundle and laptop latency evidence
+      - name: Download selected release and latency evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-selected-release-${{ inputs.evidence_run_id }}
+          path: ${{ runner.temp }}/selected-release
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.evidence_run_id }}
+
+      - name: Restore the selected bundle and latency evidence
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          git fetch --no-tags origin ci-orchestration:refs/remotes/origin/ci-orchestration
-          $archive = Join-Path $env:RUNNER_TEMP 'phase9-release-inputs.tar'
-          git archive --format=tar --output=$archive origin/ci-orchestration ci-inputs/release
-          tar -xf $archive -C $env:RUNNER_TEMP
+          $download = Join-Path $env:RUNNER_TEMP 'selected-release'
+          $release = Get-ChildItem -LiteralPath $download -Directory -Recurse |
+            Where-Object { $_.Name -eq 'phase9-reference-release-20260728-b' } |
+            Select-Object -First 1
+          $latency = Get-ChildItem -LiteralPath $download -Directory -Recurse |
+            Where-Object { $_.Name -eq 'phase9-reference-selected-latency-20260728-b-actions' } |
+            Select-Object -First 1
+          if ($null -eq $release -or $null -eq $latency) {
+            throw 'Selected-release artifact is missing its bundle or latency run.'
+          }
           New-Item -ItemType Directory -Force -Path $env:RELEASE_BUNDLE_DIR | Out-Null
-          New-Item -ItemType Directory -Force -Path (Split-Path $env:LATENCY_RUN) | Out-Null
-          Copy-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'ci-inputs/release/production-release-bundle.json') -Destination $env:RELEASE_BUNDLE_PATH
-          Copy-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'ci-inputs/release/selected-latency') -Destination $env:LATENCY_RUN -Recurse
+          New-Item -ItemType Directory -Force -Path $env:LATENCY_RUN | Out-Null
+          Copy-Item -LiteralPath (Join-Path $release.FullName 'production-release-bundle.json') -Destination $env:RELEASE_BUNDLE_PATH
+          Get-ChildItem -LiteralPath $latency.FullName -Force |
+            Copy-Item -Destination $env:LATENCY_RUN -Recurse -Force
           Get-FileHash -Algorithm SHA256 -LiteralPath $env:RELEASE_BUNDLE_PATH
           if (git status --short --untracked-files=all) {
             throw 'Restoring ignored release evidence made the release worktree dirty.'
