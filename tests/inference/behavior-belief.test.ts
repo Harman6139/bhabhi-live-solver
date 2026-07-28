@@ -321,6 +321,38 @@ function collectKeys(value: unknown, keys = new Set<string>()): Set<string> {
 }
 
 describe("production behavioral belief replay", () => {
+  it("injects independently fitted P2/P3 priors while preserving the legacy default envelope", () => {
+    const fixture = forcedOpeningFixture();
+    const hardBelief = concreteHardBelief(fixture);
+    const legacy = buildBehaviorBelief(fixture.timeline, hardBelief);
+    const fitted = buildBehaviorBelief(fixture.timeline, hardBelief, {
+      opponentModelPriors: {
+        p2: {
+          "always-high": 10,
+          "always-low": 1,
+        },
+        p3: {
+          "always-high": 1,
+          "always-low": 10,
+        },
+      },
+    });
+
+    expect("opponentModelPriors" in legacy).toBe(false);
+    expect(fitted.opponentModelPriors).toBeDefined();
+    expect(fitted.configHash).not.toBe(legacy.configHash);
+    expect(fitted.resultHash).not.toBe(legacy.resultHash);
+    expect(modelProbability(fitted, "p2", "always-high")).toBeGreaterThan(
+      modelProbability(fitted, "p2", "always-low"),
+    );
+    expect(modelProbability(fitted, "p3", "always-low")).toBeGreaterThan(
+      modelProbability(fitted, "p3", "always-high"),
+    );
+    expect(
+      fitted.worldOccurrences[0]?.conditionalModelProbabilities.p2,
+    ).not.toEqual(fitted.worldOccurrences[0]?.conditionalModelProbabilities.p3);
+  });
+
   it("leaves every model and world factor neutral on a forced replayed decision", () => {
     const fixture = forcedOpeningFixture();
     const hardBelief = concreteHardBelief(fixture);

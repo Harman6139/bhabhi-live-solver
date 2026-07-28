@@ -74,6 +74,40 @@ export type TerminalOutcome = {
   readonly userFinish: "first" | "second" | "bhabhi" | "tied-safe";
 };
 
+/**
+ * Public-only resolution of the root decision. These records deliberately
+ * contain counts and public rule effects, never hidden hands or simulator
+ * state.
+ */
+export type RootResolution =
+  | {
+      readonly type: "take-hand";
+      readonly actor: "user";
+      readonly target: OpponentSeat;
+      readonly cardCount: number;
+    }
+  | {
+      readonly type: "trick-picked-up";
+      readonly picker: Seat;
+      readonly thullaBy: Seat;
+      readonly cardCount: number;
+    }
+  | {
+      readonly type: "trick-wasted";
+      readonly power: Seat;
+      readonly cardCount: number;
+    }
+  | {
+      readonly type: "game-completed";
+      readonly bhabhi: Seat;
+      readonly reason: TerminalOutcome["terminalReason"];
+    };
+
+export type RootResolutionProbability = {
+  readonly resolution: RootResolution;
+  readonly probability: number;
+};
+
 export type RolloutOutcome = {
   readonly scenarioOccurrence: number;
   readonly replicate: number;
@@ -82,6 +116,7 @@ export type RolloutOutcome = {
   readonly rootPickup: boolean;
   readonly rootPickupCount: number;
   readonly rootPower: boolean;
+  readonly rootResolution: RootResolution;
   readonly eventCount: number;
   readonly chanceCount: number;
   readonly policyDecisions: readonly {
@@ -110,6 +145,11 @@ export type ActionEstimate = {
   readonly immediatePickupProbability: number;
   readonly expectedImmediatePickupCount: number;
   readonly immediatePowerProbability: number;
+  /**
+   * Opt-in public causal diagnostic. It is omitted by the frozen baseline
+   * entry point and included by the production solver.
+   */
+  readonly rootResolutionProbabilities?: readonly RootResolutionProbability[];
   readonly firstOpponentEscape: Readonly<
     Record<"p2" | "p3" | "tie" | "none", number>
   >;

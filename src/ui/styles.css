@@ -840,6 +840,164 @@ fieldset {
   animation: pulse 1.2s ease-in-out infinite alternate;
 }
 
+.analysis-control-panel .section-heading {
+  align-items: end;
+}
+
+.analysis-control-panel label {
+  min-width: 11rem;
+}
+
+.analysis-heading,
+.candidate-card__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.analysis-badges,
+.diagnostic-actions,
+.inline-card-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.evidence-label,
+.recommend-chip,
+.candidate-rank {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.evidence-label--known,
+.recommend-chip {
+  border-color: rgb(93 224 162 / 55%);
+  color: var(--green);
+}
+
+.evidence-label--sensitive,
+.sensitivity-note--fragile {
+  color: var(--amber);
+}
+
+.recommendation-hero-metrics,
+.candidate-primary-metrics,
+.diagnostic-grid,
+.diagnostic-columns,
+.structured-correction-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.analysis-metric,
+.diagnostic-grid > div,
+.diagnostic-subpanel,
+.candidate-card,
+.causal-explanation {
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  padding: 0.8rem;
+  background: rgb(255 255 255 / 2%);
+}
+
+.analysis-metric {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.analysis-metric span,
+.analysis-metric small,
+.diagnostic-grid dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.analysis-metric strong {
+  font-size: 1.15rem;
+}
+
+.candidate-list {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.candidate-card--recommended {
+  border-color: rgb(93 224 162 / 55%);
+}
+
+.candidate-distribution {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.candidate-distribution dt,
+.candidate-distribution dd,
+.diagnostic-grid dt,
+.diagnostic-grid dd {
+  margin: 0;
+}
+
+.diagnostic-grid--hashes code {
+  overflow-wrap: anywhere;
+}
+
+.diagnostics-panel > summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.diagnostics-panel > summary span {
+  display: grid;
+}
+
+.diagnostics-panel > summary small {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.diagnostic-columns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.diagnostic-table-scroll {
+  overflow-x: auto;
+}
+
+.diagnostic-table-scroll table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.diagnostic-table-scroll th,
+.diagnostic-table-scroll td {
+  border-bottom: 1px solid var(--line);
+  padding: 0.55rem;
+  text-align: left;
+}
+
+.inline-card-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.truth-firewall-note {
+  border-left: 3px solid var(--green);
+  padding-left: 0.75rem;
+}
+
 @keyframes pulse {
   to {
     transform: translateY(-0.25rem);
@@ -866,6 +1024,12 @@ fieldset {
   .header-actions {
     justify-content: flex-start;
   }
+
+  .recommendation-hero-metrics,
+  .candidate-primary-metrics,
+  .diagnostic-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -875,6 +1039,8 @@ fieldset {
 
   .hero,
   .section-heading,
+  .analysis-heading,
+  .candidate-card__heading,
   .confirm-banner,
   .tracker-footer {
     align-items: stretch;
@@ -900,7 +1066,13 @@ fieldset {
   .rules-grid,
   .player-grid,
   .current-trick,
-  .take-panel form {
+  .take-panel form,
+  .recommendation-hero-metrics,
+  .candidate-primary-metrics,
+  .candidate-distribution,
+  .diagnostic-grid,
+  .diagnostic-columns,
+  .structured-correction-grid {
     grid-template-columns: 1fr;
   }
 

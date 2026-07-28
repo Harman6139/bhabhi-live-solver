@@ -134,6 +134,12 @@ export type BehaviorBelief = {
   readonly modelHash: string;
   readonly resultHash: string;
   readonly config: BehaviorModelConfig;
+  /**
+   * Optional seat-specific fitted priors. Omission is the frozen legacy path:
+   * both opponents start from config.modelPriors and the historic payload/hash
+   * remains byte-for-byte unchanged.
+   */
+  readonly opponentModelPriors?: OpponentBehaviorModelPriors;
   readonly decisionOrdinals: Readonly<Record<Seat, number>>;
   readonly worldOccurrences: readonly BehaviorWorldOccurrence[];
   readonly opponentPosteriors: Readonly<
@@ -141,6 +147,24 @@ export type BehaviorBelief = {
   >;
   readonly diagnostics: BehaviorBeliefDiagnostics;
   readonly decisionTraces: readonly BehaviorDecisionTrace[];
+};
+
+export type OpponentBehaviorModelPriorsInput = Readonly<
+  Partial<
+    Record<OpponentSeat, Partial<Readonly<Record<BehaviorModelId, number>>>>
+  >
+>;
+
+export type OpponentBehaviorModelPriors = Readonly<
+  Record<OpponentSeat, Readonly<Record<BehaviorModelId, number>>>
+>;
+
+export type BehaviorBeliefConfigInput = BehaviorModelConfigInput & {
+  /**
+   * Train/tune-selected priors for each opponent. Shared likelihood controls
+   * remain in the BehaviorModelConfigInput fields above.
+   */
+  readonly opponentModelPriors?: OpponentBehaviorModelPriorsInput;
 };
 
 export type CurrentOpponentActionPrediction = {
@@ -156,11 +180,51 @@ export type CurrentOpponentActionPrediction = {
 
 export function behaviorBeliefConfigurationHash(
   config: BehaviorModelConfig,
+  opponentModelPriors?: OpponentBehaviorModelPriors,
 ): string {
   return stableHash({
     schemaVersion: 1,
     algorithmVersion: BEHAVIOR_BELIEF_ALGORITHM_VERSION,
     config,
+    ...(opponentModelPriors === undefined ? {} : { opponentModelPriors }),
+  });
+}
+
+function validateOpponentModelPriors(
+  config: BehaviorModelConfig,
+  input: OpponentBehaviorModelPriorsInput | undefined,
+): OpponentBehaviorModelPriors | undefined {
+  if (input === undefined) {
+    return undefined;
+  }
+  const unknownSeats = Object.keys(input).filter(
+    (seat) => seat !== "p2" && seat !== "p3",
+  );
+  if (unknownSeats.length > 0) {
+    throw new HardInferenceError(
+      "INVALID_CONFIG",
+      "opponentModelPriors contains an unknown opponent seat.",
+      { details: { unknownSeats } },
+    );
+  }
+  const priorsFor = (
+    seat: OpponentSeat,
+  ): Readonly<Record<BehaviorModelId, number>> => {
+    const supplied = input[seat] ?? {};
+    const merged = Object.fromEntries(
+      BEHAVIOR_MODEL_IDS.map((modelId) => [
+        modelId,
+        supplied[modelId] ?? config.modelPriors[modelId],
+      ]),
+    ) as Record<BehaviorModelId, number>;
+    return validateBehaviorModelConfig({
+      ...config,
+      modelPriors: merged,
+    }).modelPriors;
+  };
+  return deepFreezeBehavior({
+    p2: priorsFor("p2"),
+    p3: priorsFor("p3"),
   });
 }
 
@@ -493,12 +557,16 @@ function assertMatchingHardBelief(
 function createWorldReplays(
   hardBelief: HardBelief,
   config: BehaviorModelConfig,
+  opponentModelPriors?: OpponentBehaviorModelPriors,
 ): MutableWorldReplay[] {
   const occurrenceCount = hardBelief.worlds.length;
   const initialLogWeight = -Math.log(occurrenceCount);
-  const initialModelLogs = BEHAVIOR_MODEL_IDS.map((modelId) =>
-    Math.log(config.modelPriors[modelId]),
-  );
+  const initialModelLogs = (seat: OpponentSeat): number[] =>
+    BEHAVIOR_MODEL_IDS.map((modelId) =>
+      Math.log(
+        opponentModelPriors?.[seat][modelId] ?? config.modelPriors[modelId],
+      ),
+    );
   return hardBelief.worlds.map((world, occurrenceIndex) => {
     let exactState: ExactHandState;
     try {
@@ -525,8 +593,8 @@ function createWorldReplays(
       exactState,
       logWeight: initialLogWeight,
       modelLogProbabilities: {
-        p2: [...initialModelLogs],
-        p3: [...initialModelLogs],
+        p2: initialModelLogs("p2"),
+        p3: initialModelLogs("p3"),
       },
     };
   });
@@ -908,15 +976,21 @@ function buildDiagnostics(
 export function buildBehaviorBelief(
   timeline: GameTimeline,
   hardBelief: HardBelief,
-  configInput: BehaviorModelConfigInput = {},
+  configInput: BehaviorBeliefConfigInput = {},
 ): BehaviorBelief {
-  const config = validateBehaviorModelConfig(configInput);
+  const { opponentModelPriors: opponentPriorsInput, ...modelConfigInput } =
+    configInput;
+  const config = validateBehaviorModelConfig(modelConfigInput);
+  const opponentModelPriors = validateOpponentModelPriors(
+    config,
+    opponentPriorsInput,
+  );
   const { events, historyHash } = assertMatchingHardBelief(
     timeline,
     hardBelief,
   );
   const finalReplay = replayTimeline(timeline);
-  const replays = createWorldReplays(hardBelief, config);
+  const replays = createWorldReplays(hardBelief, config, opponentModelPriors);
   const decisionOrdinals: Record<Seat, number> = {
     user: 0,
     p2: 0,
@@ -1094,7 +1168,10 @@ export function buildBehaviorBelief(
     p3: marginalModelPosterior(replays, "p3"),
   } as const;
   const diagnostics = buildDiagnostics(replays, traces, config);
-  const configHash = behaviorBeliefConfigurationHash(config);
+  const configHash = behaviorBeliefConfigurationHash(
+    config,
+    opponentModelPriors,
+  );
   const content = {
     schemaVersion: 1 as const,
     algorithmVersion: BEHAVIOR_BELIEF_ALGORITHM_VERSION,
@@ -1104,6 +1181,7 @@ export function buildBehaviorBelief(
     configHash,
     modelHash: BEHAVIOR_MODEL_HASH,
     config,
+    ...(opponentModelPriors === undefined ? {} : { opponentModelPriors }),
     decisionOrdinals,
     worldOccurrences,
     opponentPosteriors,

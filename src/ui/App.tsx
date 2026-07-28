@@ -8,40 +8,57 @@ import {
 } from "../events/timeline";
 import {
   clearSavedGame,
+  isCorruptGameStoreError,
   loadGameTimeline,
   saveGameTimeline,
 } from "../persistence/game-store";
 import { SetupScreen } from "./SetupScreen";
 import { TrackerScreen } from "./TrackerScreen";
 
-type SaveState = "idle" | "saving" | "saved" | "error";
+export type SaveState = "idle" | "saving" | "saved" | "error";
+
+type BootProblem = Readonly<{
+  message: string;
+  corrupt: boolean;
+}>;
 
 export function App() {
   const [timeline, setTimeline] = useState<GameTimeline | null>(null);
+  const [sessionEpoch, setSessionEpoch] = useState(0);
   const [booting, setBooting] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("idle");
-  const [bootError, setBootError] = useState<string | null>(null);
+  const [bootProblem, setBootProblem] = useState<BootProblem | null>(null);
   const loaded = useRef(false);
   const saveChain = useRef<Promise<void>>(Promise.resolve());
-  const sessionEpoch = useRef(0);
+  const sessionEpochRef = useRef(0);
   const resetting = useRef(false);
+
+  function replaceSession(nextTimeline: GameTimeline | null): void {
+    sessionEpochRef.current += 1;
+    setSessionEpoch(sessionEpochRef.current);
+    setTimeline(nextTimeline);
+  }
 
   useEffect(() => {
     let cancelled = false;
     void loadGameTimeline()
       .then((saved) => {
         if (!cancelled) {
-          setTimeline(saved);
+          if (saved !== null) {
+            replaceSession(saved);
+          }
           setSaveState(saved === null ? "idle" : "saved");
         }
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          setBootError(
-            error instanceof Error
-              ? `Local restore unavailable: ${error.message}`
-              : "Local restore is unavailable.",
-          );
+          setBootProblem({
+            message:
+              error instanceof Error
+                ? `Local restore unavailable: ${error.message}`
+                : "Local restore is unavailable.",
+            corrupt: isCorruptGameStoreError(error),
+          });
           setSaveState("error");
         }
       })
@@ -61,39 +78,45 @@ export function App() {
       return;
     }
     let cancelled = false;
-    const epoch = sessionEpoch.current;
+    const epoch = sessionEpoch;
     setSaveState("saving");
     const pendingSave = saveChain.current.then(async () => {
-      if (sessionEpoch.current === epoch) {
+      if (sessionEpochRef.current === epoch) {
         await saveGameTimeline(timeline);
       }
     });
     saveChain.current = pendingSave.catch(() => undefined);
     void pendingSave
       .then(() => {
-        if (!cancelled && sessionEpoch.current === epoch) {
+        if (!cancelled && sessionEpochRef.current === epoch) {
           setSaveState("saved");
         }
       })
       .catch(() => {
-        if (!cancelled && sessionEpoch.current === epoch) {
+        if (!cancelled && sessionEpochRef.current === epoch) {
           setSaveState("error");
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [timeline]);
+  }, [sessionEpoch, timeline]);
 
   function createGame(event: GameCreatedEvent): void {
-    setTimeline(createTimeline(event));
-    setBootError(null);
+    replaceSession(createTimeline(event));
+    setBootProblem(null);
     window.scrollTo(0, 0);
   }
 
   function importGame(serialized: string): void {
-    setTimeline(importGameArchive(serialized));
-    setBootError(null);
+    replaceSession(importGameArchive(serialized));
+    setBootProblem(null);
+    window.scrollTo(0, 0);
+  }
+
+  function importActiveGame(nextTimeline: GameTimeline): void {
+    replaceSession(nextTimeline);
+    setBootProblem(null);
     window.scrollTo(0, 0);
   }
 
@@ -101,8 +124,49 @@ export function App() {
     nextTimeline: GameTimeline,
     expectedEpoch: number,
   ): void {
-    if (!resetting.current && sessionEpoch.current === expectedEpoch) {
+    if (!resetting.current && sessionEpochRef.current === expectedEpoch) {
       setTimeline(nextTimeline);
+    }
+  }
+
+  async function retrySave(): Promise<void> {
+    if (timeline === null) {
+      return;
+    }
+    const epoch = sessionEpochRef.current;
+    const snapshot = timeline;
+    setSaveState("saving");
+    const pendingSave = saveChain.current.then(async () => {
+      if (sessionEpochRef.current === epoch) {
+        await saveGameTimeline(snapshot);
+      }
+    });
+    saveChain.current = pendingSave.catch(() => undefined);
+    try {
+      await pendingSave;
+      if (sessionEpochRef.current === epoch) {
+        setSaveState("saved");
+      }
+    } catch {
+      if (sessionEpochRef.current === epoch) {
+        setSaveState("error");
+      }
+    }
+  }
+
+  async function discardCorruptSave(): Promise<void> {
+    try {
+      await clearSavedGame();
+      setBootProblem(null);
+      setSaveState("idle");
+    } catch (error) {
+      setBootProblem({
+        message:
+          error instanceof Error
+            ? `Could not discard the corrupt save: ${error.message}`
+            : "Could not discard the corrupt save.",
+        corrupt: true,
+      });
     }
   }
 
@@ -111,16 +175,15 @@ export function App() {
       return;
     }
     resetting.current = true;
-    sessionEpoch.current += 1;
+    replaceSession(null);
     try {
       await saveChain.current;
       await clearSavedGame();
     } catch {
-      // A new in-memory session must remain available if persistence is blocked.
+      // The fresh in-memory session remains usable if persistence is blocked.
     }
-    setTimeline(null);
     setSaveState("idle");
-    setBootError(null);
+    setBootProblem(null);
     resetting.current = false;
     window.scrollTo(0, 0);
   }
@@ -136,23 +199,38 @@ export function App() {
     );
   }
 
-  const activeSessionEpoch = sessionEpoch.current;
+  const activeSessionEpoch = sessionEpoch;
   return (
     <>
-      {bootError === null ? null : (
-        <p className="boot-warning" role="status">
-          {bootError} The tracker still works in this tab.
-        </p>
+      {bootProblem === null ? null : (
+        <aside className="boot-warning" role="status">
+          <p>
+            {bootProblem.message} The manual tracker still works in this tab,
+            and you can import a known-good archive.
+          </p>
+          {bootProblem.corrupt ? (
+            <button
+              className="button button--secondary"
+              type="button"
+              onClick={() => void discardCorruptSave()}
+            >
+              Discard corrupt save
+            </button>
+          ) : null}
+        </aside>
       )}
       {timeline === null ? (
         <SetupScreen onCreate={createGame} onImport={importGame} />
       ) : (
         <TrackerScreen
           timeline={timeline}
+          sessionEpoch={activeSessionEpoch}
           saveState={saveState}
           onTimeline={(nextTimeline) =>
             updateTimeline(nextTimeline, activeSessionEpoch)
           }
+          onReplaceTimeline={importActiveGame}
+          onRetrySave={retrySave}
           onNewGame={newGame}
         />
       )}

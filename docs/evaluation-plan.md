@@ -70,6 +70,7 @@ chance
 belief
 search
 rollout
+solver-chance
 bootstrap
 ```
 
@@ -77,6 +78,11 @@ Opponent and chance streams are keyed by actor plus semantic decision/event
 ordinal, not by consumption order from one shared mutable generator. At a fixed
 root, every candidate action reuses sampled worlds and rollout random numbers
 where branch semantics permit.
+
+The environment `chance` stream is style-dependent. The distinct
+`solver-chance` stream is style-neutral and uses only base index, rotation, and
+replicate in its manifest seed preimage; neither stream is derived from the
+other.
 
 Every configuration receives the same base deals, rotations, opponent policy
 seeds, and genuine chance streams. Full-game trajectories can diverge, so
@@ -383,6 +389,35 @@ Behavior parameters are fit on train; probability floors, temperatures,
 particle count, and component choices are made on tune; the serialized model is
 hashed before qualification/final. There is no recalibration on final.
 
+The Phase 8 support-regularizer tune artifact uses exactly 64 base deals × 15
+fittable style cells × three rotations (2,880 complete games; 960 style-base
+clusters). It scores pseudocounts `0.25`, `0.5`, and `1` on the same simulated
+trajectories, checkpoints, hard worlds, behavior weights, and truth labels.
+Equal-family unresolved-soft hidden-state Brier selects the candidate, with the
+smallest pseudocount winning a tie within `1e-12`. This tune-only artifact is
+separate from the minimum-1,000-cluster confirmatory calibration rule and never
+uses qualification/final seed-opening APIs.
+
+The support run uses a distinct development/tune authority whose model hash is
+the selected behavior-model artifact. After support selection, those two inputs
+produce the canonical production-model bytes. The qualification authority is
+frozen afterward and binds the production-model SHA-256; the tune authority is
+never accepted as qualification authority.
+
+A separate development-only preflight authority may then bind all four roles
+and the production model for terminal variance and route-specific browser
+screening. It cannot open qualification. The qualification registry is frozen
+after that screening with only technically eligible roles. An unopened
+qualification authority whose final route-specific latency check fails may be
+retained as abandoned and replaced; after a qualification split is opened, the
+registry is immutable.
+
+When qualification selects the reference, final calibration is an explicit
+one-arm reference confirmation. It reports hard-reference calibration and
+integrity diagnostics and marks behavioral contrasts not applicable; it never
+duplicates the reference under a behavioral label or creates a synthetic zero
+contrast.
+
 ## 11. Required ablations
 
 - behavior off/on;
@@ -463,6 +498,29 @@ timezone, screen size, and DPR. Hardware-based threshold changes require an ADR
 before holdout and a clean rerun.
 
 ## 14. Immutable artifact contract
+
+Qualification selection and final attestation bind the canonical composite
+evidence bundles specified by ADR 0008, not an arbitrary run-directory hash.
+The bundle verifier reopens and reproduces every terminal, calibration, latency,
+source-validation, authority, opening, and split-firewall input before deriving
+eligibility. Generated final release data live under `artifacts/release/` and
+are injected at build time so selection data do not change the evaluated source
+snapshot.
+
+The scientific source snapshot excludes only `README.md`,
+`docs/final-report.md`, and `docs/progress.md`, which receive measured results
+after holdout. Final byte hashes and a clean-directory dry run cover them in the
+post-selection release validation. Preregistration, ADRs, tests, scripts,
+configuration, lockfiles, and executable source remain hashed.
+
+Browser qualification/final timing uses an `evaluation-only` injected worker
+bundle bound to the exact manifest, configuration descriptor, model, source,
+and protocol. The live app refuses that mode. After the Phase 8 final
+attestation, the same source is rebuilt with a `release-selected` bundle that
+also binds the final attestation; a separate Phase 9 release-validation
+attestation covers the exact shipped build, latency/cancellation, product E2E
+and accessibility, debug truth-firewall, final documentation hashes, and README
+clean-directory dry run.
 
 ```text
 artifacts/evaluation/eval-v1/<split>/<run-id>/

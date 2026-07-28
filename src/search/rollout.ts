@@ -14,6 +14,10 @@ import type {
   WasteCardDrawnEvent,
 } from "../events/game-events";
 import { stableHash } from "../events/stable-hash";
+import type {
+  BehaviorModelConfig,
+  BehaviorModelId,
+} from "../inference/behavior-models";
 import type { PublicInformationState } from "../public/public-state";
 import { createSeededRng } from "../random/keyed-rng";
 import {
@@ -23,7 +27,9 @@ import {
   type ExactHandState,
 } from "../rules/exact-hand-transition";
 import { actionEvent, actionKey, legalUserActions } from "./actions";
+import { evaluateActorSafePolicy } from "./policy-kernel";
 import type {
+  RootResolution,
   RolloutOutcome,
   SolverBudget,
   SolverSeedSet,
@@ -38,6 +44,16 @@ type RolloutPolicyIds = Readonly<{
   p3: BaselinePolicyId;
 }>;
 
+export type BehaviorOpponentRolloutPolicy = Readonly<{
+  models: Readonly<Record<OpponentSeat, BehaviorModelId>>;
+  config: BehaviorModelConfig;
+  /**
+   * Stable world-occurrence identity used for semantic common-random-number
+   * streams. It deliberately excludes the candidate root action.
+   */
+  semanticScenarioKey: string;
+}>;
+
 export type TerminalRolloutInput = {
   readonly publicState: PublicInformationState;
   readonly exactHands: ExactHandState["hands"];
@@ -47,6 +63,7 @@ export type TerminalRolloutInput = {
   readonly replicate: number;
   readonly seeds: SolverSeedSet;
   readonly policies: RolloutPolicyIds;
+  readonly behaviorOpponentPolicy?: BehaviorOpponentRolloutPolicy;
   readonly budget: SolverBudget;
   readonly shouldCancel?: () => boolean;
 };
@@ -67,6 +84,7 @@ type RootDiagnostics = {
   pickup: boolean;
   pickupCount: number;
   power: boolean;
+  resolution: RootResolution | null;
 };
 
 const STOCHASTIC_POLICY_IDS = new Set<BaselinePolicyId>([
@@ -186,15 +204,37 @@ function applyEvent(
     const pickup = newEffects.find(
       (effect) => effect.type === "trick-picked-up",
     );
-    const wasted = newEffects.some((effect) => effect.type === "trick-wasted");
+    const wasted = newEffects.find((effect) => effect.type === "trick-wasted");
+    const completion = newEffects.find(
+      (effect) => effect.type === "game-completed",
+    );
     if (pickup?.type === "trick-picked-up") {
       root.resolved = true;
       root.pickup = pickup.picker === "user";
       root.pickupCount = pickup.picker === "user" ? pickup.cards.length : 0;
       root.power = state.exact.publicState.power === "user";
-    } else if (wasted || state.exact.publicState.status === "complete") {
+      root.resolution = {
+        type: "trick-picked-up",
+        picker: pickup.picker,
+        thullaBy: pickup.thullaBy,
+        cardCount: pickup.cards.length,
+      };
+    } else if (wasted?.type === "trick-wasted") {
       root.resolved = true;
       root.power = state.exact.publicState.power === "user";
+      root.resolution = {
+        type: "trick-wasted",
+        power: wasted.power,
+        cardCount: wasted.cards.length,
+      };
+    } else if (completion?.type === "game-completed") {
+      root.resolved = true;
+      root.power = state.exact.publicState.power === "user";
+      root.resolution = {
+        type: "game-completed",
+        bhabhi: completion.bhabhi,
+        reason: completion.reason,
+      };
     }
   }
 
@@ -228,18 +268,32 @@ function chanceEvent(
     );
   }
   const source = pending.kind === "waste-draw" ? "waste" : pending.source;
-  const rng = createSeededRng(input.seeds.chance).fork(
-    "terminal-root-rollout",
-    "scenario",
-    input.scenarioOccurrence,
-    "replicate",
-    input.replicate,
-    "chance",
-    state.chanceOrdinal,
-    pending.kind,
-    pending.player,
-    source,
-  );
+  const rng =
+    input.behaviorOpponentPolicy === undefined
+      ? createSeededRng(input.seeds.chance).fork(
+          "terminal-root-rollout",
+          "scenario",
+          input.scenarioOccurrence,
+          "replicate",
+          input.replicate,
+          "chance",
+          state.chanceOrdinal,
+          pending.kind,
+          pending.player,
+          source,
+        )
+      : createSeededRng(input.seeds.chance).fork(
+          "behavior-weighted-terminal-rollout",
+          "scenario",
+          input.behaviorOpponentPolicy.semanticScenarioKey,
+          "replicate",
+          input.replicate,
+          "chance",
+          state.chanceOrdinal,
+          pending.kind,
+          pending.player,
+          source,
+        );
   const card = rng.pick(eligible);
   state.chanceOrdinal += 1;
   if (pending.kind === "waste-draw") {
@@ -266,6 +320,102 @@ function policyIdFor(policies: RolloutPolicyIds, seat: Seat): BaselinePolicyId {
   return policies[seat];
 }
 
+function behaviorPolicyEvent(
+  state: MutableRolloutState,
+  input: TerminalRolloutInput,
+  observation: PolicyObservation & { readonly seat: OpponentSeat },
+  decisionOrdinal: number,
+): CardPlayedEvent | HandTakenEvent {
+  const behaviorPolicy = input.behaviorOpponentPolicy;
+  if (behaviorPolicy === undefined) {
+    throw new SearchError(
+      "INVARIANT_VIOLATION",
+      "Behavior-policy selection requires an explicit behavior policy.",
+    );
+  }
+  const modelId = behaviorPolicy.models[observation.seat];
+  const distribution = evaluateActorSafePolicy({
+    observation,
+    modelId,
+    config: behaviorPolicy.config,
+  });
+  const decisionRng = createSeededRng(input.seeds.rollout).fork(
+    "behavior-weighted-terminal-rollout",
+    "scenario",
+    behaviorPolicy.semanticScenarioKey,
+    "replicate",
+    input.replicate,
+    "policy",
+    observation.seat,
+    "decision",
+    decisionOrdinal,
+  );
+  const draw = decisionRng.nextFloat();
+  let cumulative = 0;
+  let selected = distribution.probabilities.at(-1);
+  for (const candidate of distribution.probabilities) {
+    cumulative += candidate.probability;
+    if (draw < cumulative) {
+      selected = candidate;
+      break;
+    }
+  }
+  if (selected === undefined) {
+    throw new SearchError(
+      "INVARIANT_VIOLATION",
+      "Behavior policy returned an empty action distribution.",
+      { seat: observation.seat, decisionOrdinal, modelId },
+    );
+  }
+  state.decisionOrdinals[observation.seat] += 1;
+  state.policyDecisions.push({
+    seat: observation.seat,
+    decisionOrdinal,
+    policyId: modelId,
+    actionKey: selected.actionKey,
+    rngStreamId: decisionRng.streamId,
+  });
+  if (selected.action.kind === "take-hand") {
+    if (
+      !(observation.legalTakeTargets ?? []).includes(selected.action.target)
+    ) {
+      throw new SearchError(
+        "ILLEGAL_POLICY_ACTION",
+        `${modelId} chose illegal take target ${selected.action.target}.`,
+        { seat: observation.seat, decisionOrdinal, modelId },
+      );
+    }
+    return {
+      type: "hand-taken",
+      schemaVersion: 1,
+      actor: observation.seat,
+      target: selected.action.target,
+      revealedCards:
+        selected.action.target === "user"
+          ? [...state.exact.hands[selected.action.target]]
+          : [],
+    };
+  }
+  if (!observation.legalCards.includes(selected.action.card)) {
+    throw new SearchError(
+      "ILLEGAL_POLICY_ACTION",
+      `${modelId} chose illegal card ${selected.action.card}.`,
+      {
+        seat: observation.seat,
+        decisionOrdinal,
+        modelId,
+        legalCards: observation.legalCards,
+      },
+    );
+  }
+  return {
+    type: "card-played",
+    schemaVersion: 1,
+    seat: observation.seat,
+    card: selected.action.card,
+  };
+}
+
 function policyEvent(
   state: MutableRolloutState,
   input: TerminalRolloutInput,
@@ -287,6 +437,17 @@ function policyEvent(
     decisionOrdinal,
     state.events ?? undefined,
   );
+  if (
+    input.behaviorOpponentPolicy !== undefined &&
+    (seat === "p2" || seat === "p3")
+  ) {
+    return behaviorPolicyEvent(
+      state,
+      input,
+      observation as PolicyObservation & { readonly seat: OpponentSeat },
+      decisionOrdinal,
+    );
+  }
   const policy = getBaselinePolicy(policyIdFor(input.policies, seat));
   const stochastic = STOCHASTIC_POLICY_IDS.has(policy.id);
   const decisionRng = stochastic
@@ -479,6 +640,17 @@ export function runTerminalRollout(
       "Scenario occurrence and replicate must be non-negative safe integers.",
     );
   }
+  if (
+    input.behaviorOpponentPolicy !== undefined &&
+    (input.behaviorOpponentPolicy.semanticScenarioKey.trim().length === 0 ||
+      input.behaviorOpponentPolicy.semanticScenarioKey.trim() !==
+        input.behaviorOpponentPolicy.semanticScenarioKey)
+  ) {
+    throw new SearchError(
+      "INVALID_REQUEST",
+      "Behavior-weighted rollout requires a nonempty trimmed semantic scenario key.",
+    );
+  }
   const state = createMutableState(input);
   if (
     input.activeEvents !== undefined &&
@@ -526,6 +698,15 @@ export function runTerminalRollout(
     power:
       input.action.kind === "take-hand" &&
       state.exact.publicState.power === "user",
+    resolution:
+      input.action.kind === "take-hand"
+        ? {
+            type: "take-hand",
+            actor: "user",
+            target: input.action.target,
+            cardCount: state.exact.publicState.handCounts[input.action.target],
+          }
+        : null,
   };
   const rootEvent = actionEvent(input.action, state.exact.hands);
   state.decisionOrdinals.user += 1;
@@ -537,7 +718,7 @@ export function runTerminalRollout(
   while (rolloutIsActive(state)) {
     applyEvent(state, nextRolloutEvent(state, input), input, root);
   }
-  if (!root.resolved) {
+  if (!root.resolved || root.resolution === null) {
     throw new SearchError(
       "INVARIANT_VIOLATION",
       "Terminal rollout did not resolve root-trick diagnostics.",
@@ -572,6 +753,7 @@ export function runTerminalRollout(
     rootPickup: root.pickup,
     rootPickupCount: root.pickupCount,
     rootPower: root.power,
+    rootResolution: root.resolution,
     eventCount: state.simulatedEventCount,
     chanceCount:
       state.chanceOrdinal - existingChanceOrdinal(input.activeEvents),

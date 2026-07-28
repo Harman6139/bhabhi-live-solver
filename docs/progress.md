@@ -28,16 +28,53 @@ properties rather than fields in this project's TOML.
 
 ## Active phase
 
-Phase 8 — Clean evaluation, ablation, and production selection.
+Phase 8 — source-freeze checkpoint immediately before clean qualification.
 
 ### Repository assessment
 
-- Git repository exists with no commits.
-- Initial branch is `master`.
-- No tracked implementation files exist.
-- Seed content consists of `GOAL.md`, `START-HERE.md`,
-  `.codex/config.toml`, and generated `outputs/` / `work/` directories.
-- Application initialization in this project root is required.
+- Git repository is initialized on `master`.
+- Verified Phase 7 baseline commit:
+  `dc230b0 chore: establish verified phase 7 baseline`.
+- Phase 0 through Phase 7 implementation, tests, development artifacts, and
+  documentation are tracked at that commit.
+- The Phase 8/9 implementation candidate is integrated and awaiting its
+  source-freeze commit. No clean qualification or final seed namespace has
+  been generated or opened.
+
+### Current Phase 8 infrastructure status
+
+- Frozen configuration roles are R (hard-only reference), E (hard-only exact
+  attempt with byte-identical R fallback), B (behavior-weighted approximate),
+  and BE (behavior-weighted exact attempt with byte-identical B fallback).
+- Separate qualification and final authorities, canonical serialization,
+  write-once split opening, sample-size provenance, 20,000-resample max-stat
+  inference, noninferiority/improvement/tie/catastrophe rules, selection,
+  reference fallback, and checksummed attestations are implemented and covered
+  by focused tests.
+- Environment chance, solver chance, and bootstrap randomness use separate
+  semantic streams. Solver-chance and bootstrap streams are style-neutral so
+  common random numbers remain valid across paired configuration arms.
+- ADR 0009 freezes the first release as reference-only before either clean split
+  opens. Behavioral train/tune, support tuning, and behavior calibration are
+  explicitly not applicable for this registry; Phase 6 remains descriptive
+  development evidence.
+- Qualification and final are genuine one-arm R confirmations with no
+  self-contrast and no “beats” claim. The browser latency contract permits only
+  the genuinely executable R worker route; advanced IDs cannot relabel its
+  timings.
+- Worker-parallel terminal execution, immutable terminal/statistical artifacts,
+  browser latency/cancellation artifacts, composite selection/final bundles,
+  selected-release verification, production worker publication, UI
+  explanations/diagnostics, correction invalidation, accessibility smoke, and
+  Phase 9 release attestation are implemented.
+- ADR 0008 now freezes the composite qualification/final evidence bundle and
+  external generated-release binding before clean data. Selection cannot be
+  authorized by an opaque or partial artifact hash.
+- Latest pre-freeze checkpoint: format, lint, typecheck, production build, and
+  desktop/mobile E2E pass. The complete suite reached 553/555 before two legacy
+  20-second artifact-test caps; the same file then passed 6/6 under the
+  project-wide 60-second ceiling. The authoritative complete suite is rerun by
+  the frozen source-validation command set before qualification opens.
 
 ### Development environment
 
@@ -683,15 +720,15 @@ captured stderr       empty
   power, and two-player shootout semantics. Canonical defaults and the supported
   operational alternatives are fixed in `RuleConfig` and ADR 0002; further
   household variants remain unsupported until their semantics are explicit.
-- Behavioral inference exists and improves several development-only
-  calibration metrics, but remains disabled because no clean qualification
-  terminal-noninferiority result exists. The joint-event result is
-  inconclusive, conditional evidence contains only four observations, and
-  Player 3 forced-action Brier degraded. Train/tune/qualification evidence must
-  remain separate.
-- The solver is intentionally synchronous in Phase 5. Same-thread abort signals
-  can only be observed if already set; production worker execution, cooperative
-  cancellation, and stale-publication rejection remain release requirements.
+- Behavioral inference remains disabled for the first release. Development
+  calibration is informative but cannot substitute for a browser-executable
+  clean qualification route; ADR 0009 closes it as not applicable for this
+  reference-only registry.
+- The live tracker launches the production worker, verifies the release and
+  request/result identity, publishes explanations/diagnostics, and invalidates
+  stale work. The selected bundle cannot be generated until qualification and
+  final evidence pass; an ordinary source build therefore reports analysis as
+  unavailable by design.
 - Eight GiB of physical memory constrains large particle sets and browser-based
   offline runs; budgets and worker memory need measurement.
 - Rules sources are descriptive/community references rather than a formal
@@ -699,10 +736,9 @@ captured stderr       empty
 
 ## Next step
 
-Establish a committed reproducible Phase 7 baseline, then implement the frozen
-Phase 8 manifest authority, behavior-weighted approximate ablation, generic
-qualification/final runner, trained-model pipeline, calibration/sensitivity
-artifacts, simultaneous terminal statistics, production worker, and browser
-latency/cancellation harness. Run only development sizing before freezing and
-opening clean qualification; keep frozen Phase 5 Balanced hard-only as the
-provisional production default and all advanced behavior off meanwhile.
+Commit the clean source candidate, run the 12-command frozen source validation,
+and only then open qualification. Execute R-only qualification terminal and
+browser latency, selection/final freeze, fresh final terminal and latency,
+final attestation, selected-release build/latency, documentation finalization,
+and the create-exclusive Phase 9 release-validation attestation. Do not modify
+scientific source after qualification opens.

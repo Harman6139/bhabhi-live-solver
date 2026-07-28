@@ -17,6 +17,7 @@ const ADVANCED_SOURCE_FILES = [
   "src/search/model-sensitivity.ts",
   "src/search/exact-model-sensitivity.ts",
   "src/search/research-dispatch.ts",
+  "src/search/behavior-weighted-approximate.ts",
 ] as const;
 
 describe("advanced-search truth firewall", () => {
@@ -33,6 +34,9 @@ describe("advanced-search truth firewall", () => {
       expect(source, relativePath).not.toMatch(/\brequire\s*\(/u);
       expect(source, relativePath).not.toMatch(
         /\b(?:createSimulatorTruth|revealTruth|omniscientState)\b/u,
+      );
+      expect(source, relativePath).not.toMatch(
+        /\bfrom\s+["'][^"']*evaluation(?:\/|["'])/u,
       );
     }
   });

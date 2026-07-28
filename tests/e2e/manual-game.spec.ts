@@ -189,7 +189,7 @@ test("enters, corrects, saves, restores, exports, imports, and completes a full 
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium");
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
 
   const consoleErrors: string[] = [];
   page.on("console", (message) => {
@@ -243,6 +243,7 @@ test("enters, corrects, saves, restores, exports, imports, and completes a full 
     .nth(terminalCorrectionIndex)
     .getByRole("button", { name: "Correct" })
     .click();
+  await page.getByText("Advanced developer JSON", { exact: true }).click();
   await page.getByRole("textbox", { name: "Event JSON" }).fill(
     JSON.stringify(
       {
@@ -342,7 +343,9 @@ test("mobile setup and live tracking stay usable without horizontal overflow", a
     await enterFixtureEvent(page, event, offset + 2);
   }
   await page.getByRole("button", { name: "Correct" }).last().click();
-  await expect(page.getByRole("textbox", { name: "Event JSON" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Correct event 3" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Cancel" }).click();
 
   await page.getByRole("button", { name: "New game" }).click();

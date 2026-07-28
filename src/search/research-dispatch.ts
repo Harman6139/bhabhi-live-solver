@@ -1,5 +1,8 @@
 import { stableHash } from "../events/stable-hash";
-import { buildBehaviorBelief } from "../inference/behavior-belief";
+import {
+  buildBehaviorBelief,
+  type BehaviorBeliefConfigInput,
+} from "../inference/behavior-belief";
 import {
   BEHAVIOR_MODEL_IDS,
   DEFAULT_BEHAVIOR_MODEL_CONFIG,
@@ -56,7 +59,7 @@ export type ResearchTimelineBeliefMode =
     }
   | {
       readonly kind: "behavior-weighted";
-      readonly behaviorConfig?: BehaviorModelConfigInput;
+      readonly behaviorConfig?: BehaviorBeliefConfigInput;
     };
 
 export type ResearchTimelineRecommendationRequest =
@@ -365,6 +368,7 @@ export function recommendResearchFromTimeline(
   let behaviorConfig = validateBehaviorModelConfig(
     beliefMode.behaviorConfig ?? DEFAULT_BEHAVIOR_MODEL_CONFIG,
   );
+  let behaviorBeliefConfigHash: string | undefined;
   let hypothesisSet: ExactInformationHypothesisSet;
   if (beliefMode.kind === "behavior-weighted") {
     const behaviorBelief = buildBehaviorBelief(
@@ -373,6 +377,7 @@ export function recommendResearchFromTimeline(
       beliefMode.behaviorConfig,
     );
     behaviorConfig = behaviorBelief.config;
+    behaviorBeliefConfigHash = behaviorBelief.configHash;
     hypothesisSet = exactHypothesesFromWeightedBehavior({
       set: buildWeightedBehaviorHypotheses({
         hardBelief: prepared.hardBelief,
@@ -426,6 +431,9 @@ export function recommendResearchFromTimeline(
       hypothesisSet,
       activeEvents,
       behaviorConfig,
+      ...(behaviorBeliefConfigHash === undefined
+        ? {}
+        : { behaviorBeliefConfigHash }),
       opponentPolicyMode:
         beliefMode.kind === "hard-only"
           ? "deterministic-baseline"

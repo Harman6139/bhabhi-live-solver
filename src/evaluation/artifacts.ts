@@ -79,6 +79,18 @@ export type SourceSnapshot = {
   readonly gitDirty: boolean;
 };
 
+/**
+ * Result-bearing human documentation is finalized only after clean holdout
+ * artifacts exist. Excluding these three files keeps that reporting step from
+ * changing the scientific implementation hash. Their exact bytes are instead
+ * covered by the post-selection README/release-validation attestation.
+ */
+export const SOURCE_SNAPSHOT_EXCLUDED_FILES = Object.freeze([
+  "README.md",
+  "docs/final-report.md",
+  "docs/progress.md",
+] as const);
+
 export type ArtifactWriteResult = {
   readonly runDirectory: string;
   readonly manifest: EvaluationManifest;
@@ -111,6 +123,7 @@ const SOURCE_EXCLUDED_DIRECTORIES = new Set([
   "test-results",
   "work",
 ]);
+const SOURCE_EXCLUDED_FILES = new Set<string>(SOURCE_SNAPSHOT_EXCLUDED_FILES);
 
 async function sourceFiles(root: string): Promise<string[]> {
   const output: string[] = [];
@@ -125,7 +138,10 @@ async function sourceFiles(root: string): Promise<string[]> {
       if (entry.isDirectory()) {
         await visit(path);
       } else if (entry.isFile()) {
-        output.push(relative(root, path).replaceAll("\\", "/"));
+        const relativePath = relative(root, path).replaceAll("\\", "/");
+        if (!SOURCE_EXCLUDED_FILES.has(relativePath)) {
+          output.push(relativePath);
+        }
       }
     }
   }

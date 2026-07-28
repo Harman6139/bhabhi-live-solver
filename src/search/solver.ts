@@ -40,6 +40,7 @@ import {
   type BaselineRecommendationPayload,
   type DifferenceInterval,
   type RolloutOutcome,
+  type RootResolutionProbability,
   type SolverBudget,
   type SolverBudgetId,
   type SolverPolicyConfig,
@@ -70,6 +71,11 @@ export type ScenarioAnalysisRequest = {
   readonly policies?: SolverPolicyConfig;
   readonly seeds?: Partial<SolverSeedSet>;
   readonly shouldCancel?: () => boolean;
+  /**
+   * Production-only causal diagnostics. Omitted by default so frozen
+   * evaluation payloads retain their historical byte shape.
+   */
+  readonly includePublicRootDiagnostics?: boolean;
 };
 
 export type TimelineRecommendationRequest = {
@@ -79,6 +85,7 @@ export type TimelineRecommendationRequest = {
   readonly policies?: SolverPolicyConfig;
   readonly seeds?: Partial<SolverSeedSet>;
   readonly signal?: AbortSignal;
+  readonly includePublicRootDiagnostics?: boolean;
 };
 
 export type PreparedTimelineRecommendation = {
@@ -128,6 +135,30 @@ function probability(
   predicate: (outcome: RolloutOutcome) => boolean,
 ): number {
   return outcomes.filter(predicate).length / outcomes.length;
+}
+
+function rootResolutionProbabilities(
+  outcomes: readonly RolloutOutcome[],
+): readonly RootResolutionProbability[] {
+  const grouped = new Map<
+    string,
+    { readonly resolution: RolloutOutcome["rootResolution"]; count: number }
+  >();
+  for (const outcome of outcomes) {
+    const key = stableHash(outcome.rootResolution);
+    const prior = grouped.get(key);
+    if (prior === undefined) {
+      grouped.set(key, { resolution: outcome.rootResolution, count: 1 });
+    } else {
+      prior.count += 1;
+    }
+  }
+  return [...grouped.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, entry]) => ({
+      resolution: entry.resolution,
+      probability: entry.count / outcomes.length,
+    }));
 }
 
 function clusterRisks(
@@ -285,6 +316,9 @@ function candidateEstimate(
       outcomes,
       (outcome) => outcome.rootPower,
     ),
+    ...(input.includePublicRootDiagnostics === true
+      ? { rootResolutionProbabilities: rootResolutionProbabilities(outcomes) }
+      : {}),
     firstOpponentEscape: {
       p2: probability(
         outcomes,
@@ -716,6 +750,9 @@ export function prepareTimelineRecommendation(
       ...(request.policies === undefined ? {} : { policies: request.policies }),
       seeds,
       shouldCancel: () => request.signal?.aborted === true,
+      ...(request.includePublicRootDiagnostics === true
+        ? { includePublicRootDiagnostics: true }
+        : {}),
     },
   };
 }

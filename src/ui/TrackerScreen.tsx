@@ -10,7 +10,7 @@ import {
 
 import { formatCard, parseCard, type Card } from "../domain/cards";
 import type { Seat } from "../domain/seats";
-import { parseGameEvent, type GameEvent } from "../events/game-events";
+import type { GameEvent } from "../events/game-events";
 import {
   appendTimelineEvent,
   correctTimelineEventRebased,
@@ -22,7 +22,15 @@ import {
   type GameTimeline,
 } from "../events/timeline";
 import type { PublicInformationState } from "../public/public-state";
+import type { SolverBudgetId } from "../search";
 import { CardGrid } from "./CardGrid";
+import { CorrectionEditor } from "./CorrectionEditor";
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
+import { RecommendationPanel } from "./RecommendationPanel";
+import {
+  createPublicDebugSnapshot,
+  serializePublicDebugSnapshot,
+} from "./debug-snapshot";
 import {
   availablePendingCards,
   availablePlayCards,
@@ -33,11 +41,15 @@ import {
   seatLabel,
   takeTargets,
 } from "./session-utils";
+import { useLiveAnalysis } from "./use-live-analysis";
 
 type TrackerScreenProps = {
   readonly timeline: GameTimeline;
+  readonly sessionEpoch: number;
   readonly saveState: "idle" | "saving" | "saved" | "error";
   readonly onTimeline: (timeline: GameTimeline) => void;
+  readonly onReplaceTimeline: (timeline: GameTimeline) => void;
+  readonly onRetrySave: () => Promise<void>;
   readonly onNewGame: () => Promise<void>;
 };
 
@@ -126,8 +138,11 @@ function SaveIndicator({
 
 export function TrackerScreen({
   timeline,
+  sessionEpoch,
   saveState,
   onTimeline,
+  onReplaceTimeline,
+  onRetrySave,
   onNewGame,
 }: TrackerScreenProps) {
   useEffect(() => {
@@ -136,13 +151,23 @@ export function TrackerScreen({
 
   const replay = useMemo(() => replayTimeline(timeline), [timeline]);
   const state = replay.state;
+  const [selectedBudget, setSelectedBudget] =
+    useState<SolverBudgetId>("balanced");
+  const liveAnalysis = useLiveAnalysis({
+    timeline,
+    sessionEpoch,
+    enabled:
+      state.status === "active" &&
+      state.turn === "user" &&
+      state.pendingAction === null,
+    selectedBudget,
+  });
   const [entry, setEntry] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [takeTarget, setTakeTarget] = useState<Seat | "">("");
   const [revealed, setRevealed] = useState("");
   const [correctingIndex, setCorrectingIndex] = useState<number | null>(null);
-  const [correctionJson, setCorrectionJson] = useState("");
   const [confirmNew, setConfirmNew] = useState(false);
   const [resetting, setResetting] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
@@ -166,10 +191,15 @@ export function TrackerScreen({
       : availablePendingCards(state);
   const legalTakeTargets = takeTargets(state);
 
+  function publishTimeline(next: GameTimeline): void {
+    liveAnalysis.invalidate();
+    onTimeline(next);
+  }
+
   function commitEvent(event: Exclude<GameEvent, { type: "game-created" }>) {
     try {
       const next = appendTimelineEvent(timeline, event);
-      onTimeline(next);
+      publishTimeline(next);
       setEntry("");
       setError(null);
       setNotice(eventLabel(event));
@@ -224,25 +254,21 @@ export function TrackerScreen({
       return;
     }
     setCorrectingIndex(index);
-    setCorrectionJson(JSON.stringify(event, null, 2));
     setError(null);
   }
 
-  function applyCorrection(): void {
+  function applyCorrection(replacement: GameEvent): void {
     if (correctingIndex === null) {
       return;
     }
     try {
-      const value = JSON.parse(correctionJson) as unknown;
-      const replacement = parseGameEvent(value);
       const result = correctTimelineEventRebased(
         timeline,
         correctingIndex,
         replacement,
       );
-      onTimeline(result.timeline);
+      publishTimeline(result.timeline);
       setCorrectingIndex(null);
-      setCorrectionJson("");
       setError(null);
       setNotice(
         result.firstInvalidEventIndex === null
@@ -268,6 +294,26 @@ export function TrackerScreen({
     setNotice("Canonical game archive exported.");
   }
 
+  function downloadDebugSnapshot(): void {
+    if (liveAnalysis.analysis === null) {
+      return;
+    }
+    const serialized = serializePublicDebugSnapshot(
+      createPublicDebugSnapshot({
+        timeline,
+        analysis: liveAnalysis.analysis,
+        lastIncident: liveAnalysis.lastIncident,
+      }),
+    );
+    const blob = new Blob([serialized], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `getaway-debug-${replay.semanticHash.slice(-8)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function importArchive(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -276,7 +322,8 @@ export function TrackerScreen({
     }
     try {
       const imported = importGameArchive(await file.text());
-      onTimeline(imported);
+      liveAnalysis.invalidate();
+      onReplaceTimeline(imported);
       setError(null);
       setNotice(`Imported ${imported.cursor} active event(s).`);
     } catch (caught) {
@@ -338,6 +385,7 @@ export function TrackerScreen({
     setResetting(true);
     setError(null);
     try {
+      liveAnalysis.invalidate();
       await onNewGame();
     } catch (caught) {
       setResetting(false);
@@ -415,6 +463,15 @@ export function TrackerScreen({
         </div>
         <div className="header-actions">
           <SaveIndicator state={saveState} />
+          {saveState === "error" ? (
+            <button
+              className="button button--secondary"
+              type="button"
+              onClick={() => void onRetrySave()}
+            >
+              Retry local save
+            </button>
+          ) : null}
           <button
             className="button button--secondary"
             type="button"
@@ -453,6 +510,54 @@ export function TrackerScreen({
           <PlayerPanel key={seat} seat={seat} state={state} />
         ))}
       </section>
+
+      <section
+        className="panel analysis-control-panel"
+        aria-labelledby="analysis-control-title"
+      >
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Local-first decision support</p>
+            <h2 id="analysis-control-title">Live solver</h2>
+          </div>
+          <label>
+            Analysis budget
+            <select
+              value={selectedBudget}
+              onChange={(event) =>
+                setSelectedBudget(event.target.value as SolverBudgetId)
+              }
+            >
+              <option value="instant">Instant</option>
+              <option value="balanced">Balanced</option>
+              <option value="deep">Deep</option>
+              <option value="offline">Offline</option>
+            </select>
+          </label>
+        </div>
+        <p aria-live="polite">
+          {liveAnalysis.message ??
+            (state.turn === "user" && state.pendingAction === null
+              ? liveAnalysis.status === "ready"
+                ? "Recommendation is current for this public history."
+                : "Preparing analysis for this public history."
+              : "Analysis waits for the next user decision.")}
+        </p>
+      </section>
+
+      {liveAnalysis.analysis === null ? null : (
+        <>
+          <RecommendationPanel
+            analysis={liveAnalysis.analysis}
+            refining={liveAnalysis.refining}
+          />
+          <DiagnosticsPanel
+            analysis={liveAnalysis.analysis}
+            lastIncident={liveAnalysis.lastIncident}
+            onDownloadSnapshot={downloadDebugSnapshot}
+          />
+        </>
+      )}
 
       {state.status === "complete" ? (
         <section
@@ -588,7 +693,7 @@ export function TrackerScreen({
               className="button button--secondary"
               type="button"
               onClick={() => {
-                onTimeline(undoTimeline(timeline));
+                publishTimeline(undoTimeline(timeline));
                 setNotice("Undid the latest active event.");
               }}
               disabled={timeline.cursor <= 1}
@@ -600,7 +705,7 @@ export function TrackerScreen({
               type="button"
               onClick={() => {
                 try {
-                  onTimeline(redoTimeline(timeline));
+                  publishTimeline(redoTimeline(timeline));
                   setNotice("Restored the next event.");
                   setError(null);
                 } catch (caught) {
@@ -645,41 +750,14 @@ export function TrackerScreen({
           })}
         </ol>
 
-        {correctingIndex === null ? null : (
-          <div className="correction-editor">
-            <div className="section-heading">
-              <div>
-                <h3>Correct event {correctingIndex}</h3>
-                <p className="muted">
-                  Edit the typed event. Replay stops before the first stale
-                  suffix event and preserves the remainder for review.
-                </p>
-              </div>
-              <button
-                className="text-button"
-                type="button"
-                onClick={() => setCorrectingIndex(null)}
-              >
-                Cancel
-              </button>
-            </div>
-            <label>
-              Event JSON
-              <textarea
-                className="code-editor"
-                value={correctionJson}
-                onChange={(event) => setCorrectionJson(event.target.value)}
-                spellCheck={false}
-              />
-            </label>
-            <button
-              className="button button--primary"
-              type="button"
-              onClick={applyCorrection}
-            >
-              Apply and replay
-            </button>
-          </div>
+        {correctingIndex === null ||
+        timeline.events[correctingIndex] === undefined ? null : (
+          <CorrectionEditor
+            eventIndex={correctingIndex}
+            event={timeline.events[correctingIndex]}
+            onApply={applyCorrection}
+            onCancel={() => setCorrectingIndex(null)}
+          />
         )}
 
         {timeline.orphanedEvents.length > 0 ? (

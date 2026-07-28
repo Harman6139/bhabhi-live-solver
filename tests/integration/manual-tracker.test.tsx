@@ -51,8 +51,11 @@ function TrackerHarness({
   return (
     <TrackerScreen
       timeline={timeline}
+      sessionEpoch={0}
       saveState="saved"
       onTimeline={setTimeline}
+      onReplaceTimeline={setTimeline}
+      onRetrySave={() => Promise.resolve()}
       onNewGame={() => Promise.resolve()}
     />
   );
@@ -198,8 +201,11 @@ describe("manual tracker interface", () => {
       return (
         <TrackerScreen
           timeline={timeline}
+          sessionEpoch={0}
           saveState="saved"
           onTimeline={setTimeline}
+          onReplaceTimeline={setTimeline}
+          onRetrySave={() => Promise.resolve()}
           onNewGame={() => pendingReset}
         />
       );

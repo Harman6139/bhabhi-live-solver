@@ -1,7 +1,6 @@
 import { createActorObservation } from "../agents/observation";
 import {
   SUITS,
-  isCard,
   rankValue,
   sortCards,
   suitOf,
@@ -30,6 +29,18 @@ import {
   calibrationPredictionRecordSchema,
   type CalibrationPredictionRecord,
 } from "./artifact-schema";
+import {
+  calibrationQueryKey as queryKey,
+  type ParsedCalibrationQuery,
+} from "./query-key";
+import {
+  FEASIBLE_SUPPORT_REGULARIZER_VERSION,
+  regularizeFeasibleSupport,
+  type FeasibleSupportRegularizerConfig,
+} from "./support-regularization";
+import { deriveCalibrationFeasibleSupport } from "./support-feasibility";
+
+export { parseCalibrationQueryKey } from "./query-key";
 
 const OPPONENT_SEATS = ["p2", "p3"] as const;
 const BOOLEAN_LABELS = ["false", "true"] as const;
@@ -54,7 +65,35 @@ export type CalibrationCheckpointMetadata = {
 
 export type CalibrationPredictionConfig = {
   readonly conditionalProbabilityFloor: number;
+  /**
+   * Phase 8-only support-aware finite-sample regularization. Omission preserves
+   * the frozen Phase 6 estimator byte for byte.
+   */
+  readonly feasibleSupportRegularizer?: FeasibleSupportRegularizerConfig;
+  /**
+   * Eval-runner observation hook for tune-only support selection. It receives
+   * public prediction material plus independently derived hard feasibility;
+   * no exact hand or realized label crosses this boundary.
+   */
+  readonly onFeasibleSupportDiagnostic?: (
+    diagnostic: CalibrationFeasibleSupportDiagnostic,
+  ) => void;
 };
+
+export type CalibrationFeasibleSupportDiagnostic = Readonly<{
+  pairId: string;
+  arm: "hard-only" | "behavioral";
+  target: Exclude<
+    CalibrationPredictionRecord["target"],
+    { readonly kind: "terminal-risk" }
+  >;
+  rawDistribution: readonly CalibrationPredictionRecord["distribution"][number][];
+  feasibleLabels: readonly string[];
+  rawZeroFeasibleLabels: readonly string[];
+  hardKnown: boolean;
+  effectiveSampleSize: number;
+  regularizerConfigHash: string;
+}>;
 
 export type GenerateCalibrationPredictionsInput = {
   readonly timeline: GameTimeline;
@@ -63,30 +102,6 @@ export type GenerateCalibrationPredictionsInput = {
   readonly checkpoint: CalibrationCheckpointMetadata;
   readonly config: CalibrationPredictionConfig;
 };
-
-export type ParsedCalibrationQuery =
-  | {
-      readonly family: "card-owner";
-      readonly card: Card;
-    }
-  | {
-      readonly family: "current-void" | "suit-length";
-      readonly seat: OpponentSeat;
-      readonly suit: Suit;
-    }
-  | {
-      readonly family: "can-overtake";
-      readonly seat: OpponentSeat;
-      readonly suit: Suit;
-      readonly rankToBeat: number;
-    }
-  | {
-      readonly family: "joint" | "conditional";
-      readonly overtakeSeat: OpponentSeat;
-      readonly voidSeat: OpponentSeat;
-      readonly suit: Suit;
-      readonly rankToBeat: number;
-    };
 
 type WeightedOccurrence = {
   readonly occurrenceIndex: number;
@@ -497,87 +512,6 @@ function explicitlyKnownOvertake(
     return true;
   }
   return state.unresolvedCards.some(isOvertakeCard) ? null : false;
-}
-
-function queryKey(query: ParsedCalibrationQuery): string {
-  switch (query.family) {
-    case "card-owner":
-      return `card-owner:${query.card}`;
-    case "current-void":
-    case "suit-length":
-      return `${query.family}:${query.seat}:${query.suit}`;
-    case "can-overtake":
-      return `can-overtake:${query.seat}:${query.suit}:${query.rankToBeat.toString()}`;
-    case "joint":
-    case "conditional":
-      return `${query.family}:overtake:${query.overtakeSeat}:void:${query.voidSeat}:${query.suit}:${query.rankToBeat.toString()}`;
-  }
-}
-
-function isOpponentSeat(value: string | undefined): value is OpponentSeat {
-  return value === "p2" || value === "p3";
-}
-
-function isSuit(value: string | undefined): value is Suit {
-  return SUITS.some((suit) => suit === value);
-}
-
-function parsedRank(value: string | undefined): number {
-  const rank = Number(value);
-  if (!Number.isSafeInteger(rank) || rank < 2 || rank > 14) {
-    fail(`query rank "${value ?? ""}" is invalid.`);
-  }
-  return rank;
-}
-
-export function parseCalibrationQueryKey(
-  value: string,
-): ParsedCalibrationQuery {
-  const parts = value.split(":");
-  const family = parts[0];
-  if (family === "card-owner" && parts.length === 2 && isCard(parts[1])) {
-    return { family, card: parts[1] };
-  }
-  if (
-    (family === "current-void" || family === "suit-length") &&
-    parts.length === 3 &&
-    isOpponentSeat(parts[1]) &&
-    isSuit(parts[2])
-  ) {
-    return { family, seat: parts[1], suit: parts[2] };
-  }
-  if (
-    family === "can-overtake" &&
-    parts.length === 4 &&
-    isOpponentSeat(parts[1]) &&
-    isSuit(parts[2])
-  ) {
-    return {
-      family,
-      seat: parts[1],
-      suit: parts[2],
-      rankToBeat: parsedRank(parts[3]),
-    };
-  }
-  if (
-    (family === "joint" || family === "conditional") &&
-    parts.length === 7 &&
-    parts[1] === "overtake" &&
-    isOpponentSeat(parts[2]) &&
-    parts[3] === "void" &&
-    isOpponentSeat(parts[4]) &&
-    parts[2] !== parts[4] &&
-    isSuit(parts[5])
-  ) {
-    return {
-      family,
-      overtakeSeat: parts[2],
-      voidSeat: parts[4],
-      suit: parts[5],
-      rankToBeat: parsedRank(parts[6]),
-    };
-  }
-  fail(`query key "${value}" is not a supported calibration query.`);
 }
 
 function queryTarget(
@@ -992,6 +926,80 @@ function armDiagnostics(
   };
 }
 
+function applyFeasibleSupportRegularization(input: {
+  readonly predictionInput: GenerateCalibrationPredictionsInput;
+  readonly state: PublicInformationState;
+  readonly target: Exclude<
+    CalibrationPredictionRecord["target"],
+    { readonly kind: "terminal-risk" }
+  >;
+  readonly distribution: Distribution;
+  readonly legacyHardKnown: boolean;
+  readonly arm: "hard-only" | "behavioral";
+  readonly method: string;
+  readonly occurrences: readonly WeightedOccurrence[];
+}): Readonly<{
+  distribution: Distribution;
+  hardKnown: boolean;
+  method: string;
+}> {
+  const config = input.predictionInput.config.feasibleSupportRegularizer;
+  if (config === undefined) {
+    return {
+      distribution: input.distribution,
+      hardKnown: input.legacyHardKnown,
+      method: input.method,
+    };
+  }
+  const support = deriveCalibrationFeasibleSupport({
+    target: input.target,
+    state: input.state,
+    evidence: input.predictionInput.hardBelief.evidence,
+  });
+  const weights = input.occurrences.map((occurrence) =>
+    input.arm === "hard-only"
+      ? occurrence.hardWeight
+      : occurrence.behaviorWeight,
+  );
+  const regularized = regularizeFeasibleSupport({
+    distribution: input.distribution,
+    feasibleLabels: support.labels,
+    hardKnown: support.hardKnown,
+    effectiveSampleSize: effectiveSampleSize(weights),
+    config,
+  });
+  input.predictionInput.config.onFeasibleSupportDiagnostic?.(
+    Object.freeze({
+      pairId: pairId(
+        input.predictionInput.checkpoint,
+        stableHash({
+          schemaVersion: 1,
+          historyHash: input.predictionInput.behaviorBelief.historyHash,
+          publicStateHash: stableHash(input.state),
+        }),
+        input.target,
+      ),
+      arm: input.arm,
+      target: structuredClone(input.target),
+      rawDistribution: Object.freeze(
+        input.distribution.map((entry) => Object.freeze({ ...entry })),
+      ),
+      feasibleLabels: Object.freeze([...regularized.feasibleLabels]),
+      rawZeroFeasibleLabels: Object.freeze([
+        ...regularized.rawZeroFeasibleLabelsBefore,
+      ]),
+      hardKnown: support.hardKnown,
+      effectiveSampleSize: effectiveSampleSize(weights),
+      regularizerConfigHash: regularized.configHash,
+    }),
+  );
+  return {
+    distribution: [...regularized.distribution],
+    hardKnown: support.hardKnown,
+    method: `${input.method}/${FEASIBLE_SUPPORT_REGULARIZER_VERSION}/${regularized.configHash}`,
+  };
+}
+
 function assertCheckpoint(
   checkpoint: CalibrationCheckpointMetadata,
   timeline: GameTimeline,
@@ -1143,6 +1151,29 @@ export function generateCalibrationPredictions(
     compareText(left.hardTarget.queryKey, right.hardTarget.queryKey),
   );
   for (const pair of queryPairs) {
+    const hardPrediction = applyFeasibleSupportRegularization({
+      predictionInput: input,
+      state: replay.state,
+      target: pair.hardTarget,
+      distribution: pair.hardDistribution,
+      legacyHardKnown: pair.hardKnown,
+      arm: "hard-only",
+      method: `uniform-hard-occurrences/${pair.method}`,
+      occurrences,
+    });
+    const behaviorPrediction = applyFeasibleSupportRegularization({
+      predictionInput: input,
+      state: replay.state,
+      target: pair.behaviorTarget,
+      distribution: pair.behaviorDistribution,
+      legacyHardKnown: pair.hardKnown,
+      arm: "behavioral",
+      method: `behavior-weighted-hard-occurrences/${pair.method}`,
+      occurrences,
+    });
+    if (hardPrediction.hardKnown !== behaviorPrediction.hardKnown) {
+      fail("paired support regularization changed hard-known status by arm.");
+    }
     records.push(
       buildRecord(
         input,
@@ -1150,10 +1181,10 @@ export function generateCalibrationPredictions(
         stateId,
         pair.hardTarget,
         pair.hardConditioningProbability,
-        pair.hardDistribution,
-        pair.hardKnown,
+        hardPrediction.distribution,
+        hardPrediction.hardKnown,
         "hard-only",
-        `uniform-hard-occurrences/${pair.method}`,
+        hardPrediction.method,
         occurrences,
       ),
       buildRecord(
@@ -1162,10 +1193,10 @@ export function generateCalibrationPredictions(
         stateId,
         pair.behaviorTarget,
         pair.behaviorConditioningProbability,
-        pair.behaviorDistribution,
-        pair.hardKnown,
+        behaviorPrediction.distribution,
+        behaviorPrediction.hardKnown,
         "behavioral",
-        `behavior-weighted-hard-occurrences/${pair.method}`,
+        behaviorPrediction.method,
         occurrences,
       ),
     );
@@ -1217,6 +1248,31 @@ export function generateCalibrationPredictions(
       actorDecisionOrdinal: input.behaviorBelief.decisionOrdinals[seat],
       legalActionKeys: [...hardAction.legalActionKeys],
     };
+    const hardPrediction = applyFeasibleSupportRegularization({
+      predictionInput: input,
+      state: replay.state,
+      target,
+      distribution: hardAction.distribution,
+      legacyHardKnown: hardAction.hardKnown,
+      arm: "hard-only",
+      method: "uniform-hard-worlds-plus-uniform-legal-actions",
+      occurrences,
+    });
+    const behaviorPrediction = applyFeasibleSupportRegularization({
+      predictionInput: input,
+      state: replay.state,
+      target,
+      distribution: behaviorAction.distribution,
+      legacyHardKnown: hardAction.hardKnown,
+      arm: "behavioral",
+      method: "posterior-worlds-plus-conditional-actor-models",
+      occurrences,
+    });
+    if (hardPrediction.hardKnown !== behaviorPrediction.hardKnown) {
+      fail(
+        "paired action support regularization changed hard-known status by arm.",
+      );
+    }
     records.push(
       buildRecord(
         input,
@@ -1224,10 +1280,10 @@ export function generateCalibrationPredictions(
         stateId,
         target,
         null,
-        hardAction.distribution,
-        hardAction.hardKnown,
+        hardPrediction.distribution,
+        hardPrediction.hardKnown,
         "hard-only",
-        "uniform-hard-worlds-plus-uniform-legal-actions",
+        hardPrediction.method,
         occurrences,
       ),
       buildRecord(
@@ -1236,10 +1292,10 @@ export function generateCalibrationPredictions(
         stateId,
         target,
         null,
-        behaviorAction.distribution,
-        hardAction.hardKnown,
+        behaviorPrediction.distribution,
+        behaviorPrediction.hardKnown,
         "behavioral",
-        "posterior-worlds-plus-conditional-actor-models",
+        behaviorPrediction.method,
         occurrences,
       ),
     );

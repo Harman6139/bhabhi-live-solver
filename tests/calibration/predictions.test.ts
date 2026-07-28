@@ -19,6 +19,7 @@ import {
   parseCalibrationQueryKey,
   type CalibrationCheckpointMetadata,
 } from "../../src/calibration/predictions";
+import { deriveCalibrationFeasibleSupport } from "../../src/calibration/support-feasibility";
 import {
   hiddenOpponentTakeTimeline,
   play,
@@ -397,5 +398,77 @@ describe("conditional query floor", () => {
     );
     // Sampling unanimity alone is not promoted to a logical hard fact.
     expect(sampledUnanimous?.hardKnown).toBe(false);
+  });
+});
+
+describe("Phase 8 hard-feasible support regularization", () => {
+  it("fills finite-sample misses only inside exact hard support", () => {
+    const hardBelief = buildHardBelief(fixture.timeline, {
+      seed: "single-world-support-regularization",
+      sampleCount: 1,
+      forceSampling: true,
+    });
+    const behaviorBelief = buildBehaviorBelief(fixture.timeline, hardBelief);
+    const raw = generateCalibrationPredictions({
+      timeline: fixture.timeline,
+      hardBelief,
+      behaviorBelief,
+      checkpoint: checkpoint(fixture.timeline),
+      config: { conditionalProbabilityFloor: 0.05 },
+    });
+    const regularized = generateCalibrationPredictions({
+      timeline: fixture.timeline,
+      hardBelief,
+      behaviorBelief,
+      checkpoint: checkpoint(fixture.timeline),
+      config: {
+        conditionalProbabilityFloor: 0.05,
+        feasibleSupportRegularizer: {
+          pseudocountPerFeasibleLabel: 0.5,
+        },
+      },
+    });
+    const state = replayTimeline(fixture.timeline).state;
+    const rawByPrediction = new Map(
+      raw.map((record) => [record.predictionId, record]),
+    );
+    let correctedSampleMisses = 0;
+
+    for (const record of regularized) {
+      if (record.target.kind === "terminal-risk") {
+        throw new Error("Hidden-state predictions cannot be terminal records.");
+      }
+      const support = deriveCalibrationFeasibleSupport({
+        target: record.target,
+        state,
+        evidence: hardBelief.evidence,
+      });
+      expect(record.hardKnown).toBe(support.hardKnown);
+      expect(record.method).toContain("feasible-support-jeffreys-v1");
+      for (const entry of record.distribution) {
+        if (support.labels.includes(entry.label)) {
+          expect(entry.probability).toBeGreaterThan(0);
+          if (
+            rawByPrediction
+              .get(record.predictionId)
+              ?.distribution.find(
+                (candidate) => candidate.label === entry.label,
+              )?.probability === 0
+          ) {
+            correctedSampleMisses += 1;
+          }
+        } else {
+          expect(entry.probability).toBe(0);
+        }
+      }
+      if (support.hardKnown) {
+        const knownLabel = support.labels[0];
+        expect(
+          record.distribution.find((entry) => entry.label === knownLabel)
+            ?.probability,
+        ).toBe(1);
+      }
+    }
+    expect(correctedSampleMisses).toBeGreaterThan(0);
   });
 });

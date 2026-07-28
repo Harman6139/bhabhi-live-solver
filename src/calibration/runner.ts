@@ -5,6 +5,7 @@ import type { GameTimeline } from "../events/timeline";
 import {
   buildBehaviorBelief,
   type BehaviorBelief,
+  type BehaviorBeliefConfigInput,
 } from "../inference/behavior-belief";
 import { buildHardBelief } from "../inference/belief";
 import type { HardBelief } from "../inference/types";
@@ -34,7 +35,9 @@ import {
 import {
   generateCalibrationPredictions,
   type CalibrationCheckpointMetadata,
+  type CalibrationFeasibleSupportDiagnostic,
 } from "./predictions";
+import type { FeasibleSupportRegularizerConfig } from "./support-regularization";
 import { terminalClusterId, type EvalOnlyScoredObservation } from "./types";
 import {
   calibrationScenarioSeeds,
@@ -60,6 +63,34 @@ export type Phase6CalibrationRunResult = {
   readonly completedCheckpoints: number;
   readonly checkpointClassCounts: Phase6CalibrationCheckpointClassCounts;
 };
+
+export type Phase6CalibrationProgress = Readonly<{
+  attemptedGames: number;
+  completedGames: number;
+  expectedGames: number;
+  failures: number;
+  styleCellId: string;
+  baseIndex: number;
+  rotation: 0 | 1 | 2;
+}>;
+
+export type Phase6CalibrationRunOptions = Readonly<{
+  /**
+   * An already authorized development schedule may replace the legacy Phase 6
+   * seed derivation. Omission retains the original byte-identical schedule.
+   */
+  scenarioSeeds?: readonly CalibrationScenarioSeed[];
+  /**
+   * Train/tune-selected P2/P3 behavior parameters. Omission retains the
+   * original shared default behavior model.
+   */
+  behaviorBeliefConfig?: BehaviorBeliefConfigInput;
+  feasibleSupportRegularizer?: FeasibleSupportRegularizerConfig;
+  onFeasibleSupportDiagnostic?: (
+    diagnostic: CalibrationFeasibleSupportDiagnostic,
+  ) => void;
+  onProgress?: (progress: Phase6CalibrationProgress) => void;
+}>;
 
 export const PHASE6_CALIBRATION_FEATURE_BUNDLE_HASH = stableHash({
   schemaVersion: 1,
@@ -192,6 +223,7 @@ function buildBeliefs(
   seed: CalibrationScenarioSeed,
   eventIndex: number,
   plan: Phase6CalibrationPlan,
+  behaviorBeliefConfig: BehaviorBeliefConfigInput | undefined,
 ): {
   readonly hard: HardBelief;
   readonly behavior: BehaviorBelief;
@@ -207,8 +239,93 @@ function buildBeliefs(
   });
   return {
     hard,
-    behavior: buildBehaviorBelief(timeline, hard),
+    behavior:
+      behaviorBeliefConfig === undefined
+        ? buildBehaviorBelief(timeline, hard)
+        : buildBehaviorBelief(timeline, hard, behaviorBeliefConfig),
   };
+}
+
+function calibrationScenarioCoordinateKey(
+  seed: Pick<
+    CalibrationScenarioSeed,
+    "styleCellId" | "baseIndex" | "rotation" | "replicate"
+  >,
+): string {
+  return [
+    seed.styleCellId,
+    seed.baseIndex.toString(),
+    seed.rotation.toString(),
+    seed.replicate.toString(),
+  ].join("/");
+}
+
+function verifiedScenarioSeeds(
+  plan: Phase6CalibrationPlan,
+  supplied: readonly CalibrationScenarioSeed[] | undefined,
+): readonly CalibrationScenarioSeed[] {
+  if (supplied === undefined) {
+    return calibrationScenarioSeeds(plan);
+  }
+  const expectedCoordinates = new Set<string>();
+  for (const styleCellId of plan.styleCellIds) {
+    for (
+      let baseIndex = plan.baseIndexStart;
+      baseIndex < plan.baseIndexStart + plan.baseCount;
+      baseIndex += 1
+    ) {
+      for (const rotation of plan.rotations) {
+        expectedCoordinates.add(
+          calibrationScenarioCoordinateKey({
+            styleCellId,
+            baseIndex,
+            rotation,
+            replicate: plan.replicate,
+          }),
+        );
+      }
+    }
+  }
+  const suppliedCoordinates = new Set<string>();
+  for (const seed of supplied) {
+    const coordinate = calibrationScenarioCoordinateKey(seed);
+    if (
+      suppliedCoordinates.has(coordinate) ||
+      !expectedCoordinates.has(coordinate)
+    ) {
+      throw new Error(
+        `Custom calibration schedule has a duplicate or out-of-plan coordinate ${coordinate}.`,
+      );
+    }
+    const requiredSeeds = [
+      [seed.deal, "deal"],
+      [seed.p2Policy, "p2Policy"],
+      [seed.p3Policy, "p3Policy"],
+      [seed.chance, "chance"],
+      [seed.belief, "belief"],
+      [seed.bootstrap, "bootstrap"],
+    ] as const;
+    for (const [value, label] of requiredSeeds) {
+      if (value.length === 0) {
+        throw new Error(`Custom calibration ${label} seed is empty.`);
+      }
+    }
+    if (seed.userPolicy !== undefined && seed.userPolicy.length === 0) {
+      throw new Error("Custom calibration userPolicy seed is empty.");
+    }
+    suppliedCoordinates.add(coordinate);
+  }
+  if (
+    suppliedCoordinates.size !== expectedCoordinates.size ||
+    [...expectedCoordinates].some(
+      (coordinate) => !suppliedCoordinates.has(coordinate),
+    )
+  ) {
+    throw new Error(
+      "Custom calibration schedule must contain every planned coordinate exactly once.",
+    );
+  }
+  return Object.freeze(supplied.map((seed) => Object.freeze({ ...seed })));
 }
 
 function checkpointMetadata(
@@ -341,11 +458,13 @@ function simulateScenario(
     seeds: {
       deal: seed.deal,
       policy: {
-        user: stableHash({
-          schemaVersion: 1,
-          scenarioId: identity.scenarioId,
-          stream: "user-policy",
-        }),
+        user:
+          seed.userPolicy ??
+          stableHash({
+            schemaVersion: 1,
+            scenarioId: identity.scenarioId,
+            stream: "user-policy",
+          }),
         p2: seed.p2Policy,
         p3: seed.p3Policy,
       },
@@ -361,6 +480,7 @@ function simulateScenario(
 
 export function runPhase6Calibration(
   plan: Phase6CalibrationPlan,
+  options: Phase6CalibrationRunOptions = {},
 ): Phase6CalibrationRunResult {
   const seeds: CalibrationSeedRecord[] = [];
   const predictions: CalibrationPredictionRecord[] = [];
@@ -373,7 +493,7 @@ export function runPhase6Calibration(
   let completedCheckpoints = 0;
   const checkpointClassCounts = emptyCheckpointClassCounts();
   const planHash = phase6CalibrationScientificPlanHash(plan);
-  const scenarioSeeds = calibrationScenarioSeeds(plan);
+  const scenarioSeeds = verifiedScenarioSeeds(plan, options.scenarioSeeds);
 
   for (const scenarioSeed of scenarioSeeds) {
     const identity = phase6CalibrationScenarioIdentity(plan, scenarioSeed);
@@ -393,6 +513,15 @@ export function runPhase6Calibration(
           error,
         }),
       );
+      options.onProgress?.({
+        attemptedGames: seeds.length,
+        completedGames,
+        expectedGames: scenarioSeeds.length,
+        failures: failures.length,
+        styleCellId: scenarioSeed.styleCellId,
+        baseIndex: scenarioSeed.baseIndex,
+        rotation: scenarioSeed.rotation,
+      });
       continue;
     }
 
@@ -424,6 +553,7 @@ export function runPhase6Calibration(
           scenarioSeed,
           selectedCheckpoint.eventIndex,
           plan,
+          options.behaviorBeliefConfig,
         );
         const checkpoint = checkpointMetadata(
           plan,
@@ -438,6 +568,18 @@ export function runPhase6Calibration(
           checkpoint,
           config: {
             conditionalProbabilityFloor: plan.conditionalProbabilityFloor,
+            ...(options.feasibleSupportRegularizer === undefined
+              ? {}
+              : {
+                  feasibleSupportRegularizer:
+                    options.feasibleSupportRegularizer,
+                }),
+            ...(options.onFeasibleSupportDiagnostic === undefined
+              ? {}
+              : {
+                  onFeasibleSupportDiagnostic:
+                    options.onFeasibleSupportDiagnostic,
+                }),
           },
         });
         const scored = scoreCalibrationPredictions({
@@ -471,6 +613,15 @@ export function runPhase6Calibration(
         );
       }
     }
+    options.onProgress?.({
+      attemptedGames: seeds.length,
+      completedGames,
+      expectedGames: scenarioSeeds.length,
+      failures: failures.length,
+      styleCellId: scenarioSeed.styleCellId,
+      baseIndex: scenarioSeed.baseIndex,
+      rotation: scenarioSeed.rotation,
+    });
   }
 
   return Object.freeze({

@@ -14,6 +14,7 @@ export default tseslint.config(
       "artifacts/**",
       "work/**",
       "eslint.config.js",
+      "scripts/phase8-terminal-worker-bootstrap.mjs",
     ],
   },
   js.configs.recommended,

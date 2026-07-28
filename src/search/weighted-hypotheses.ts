@@ -229,6 +229,9 @@ function assertBeliefEnvelope(
     configHash: behaviorBelief.configHash,
     modelHash: behaviorBelief.modelHash,
     config: behaviorBelief.config,
+    ...(behaviorBelief.opponentModelPriors === undefined
+      ? {}
+      : { opponentModelPriors: behaviorBelief.opponentModelPriors }),
     decisionOrdinals: behaviorBelief.decisionOrdinals,
     worldOccurrences: behaviorBelief.worldOccurrences,
     opponentPosteriors: behaviorBelief.opponentPosteriors,

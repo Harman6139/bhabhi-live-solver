@@ -74,6 +74,11 @@ export type ExactEndgameSearchInput = {
   readonly activeEvents?: readonly GameEvent[];
   readonly config?: AdvancedSearchConfigInput | AdvancedSearchConfig;
   readonly behaviorConfig?: BehaviorModelConfig;
+  /**
+   * Optional full belief-configuration hash when the hypothesis masses bind
+   * seat-specific fitted priors beyond the shared behaviorConfig.
+   */
+  readonly behaviorBeliefConfigHash?: string;
   readonly opponentPolicyMode?: ExactOpponentPolicyMode;
   readonly shouldCancel?: () => boolean;
 };
@@ -1746,7 +1751,18 @@ export function solveExactEndgame(
       { cause },
     );
   }
-  const behaviorConfigHash = behaviorBeliefConfigurationHash(behaviorConfig);
+  if (
+    request.behaviorBeliefConfigHash !== undefined &&
+    request.behaviorBeliefConfigHash.trim().length === 0
+  ) {
+    throw new AdvancedSearchContractError(
+      "INVALID_CONFIG",
+      "Exact endgame received an empty behavior-belief configuration hash.",
+    );
+  }
+  const behaviorConfigHash =
+    request.behaviorBeliefConfigHash ??
+    behaviorBeliefConfigurationHash(behaviorConfig);
   const rawOpponentPolicyMode: unknown =
     request.opponentPolicyMode ?? "behavior-distribution";
   if (

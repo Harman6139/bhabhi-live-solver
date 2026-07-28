@@ -5,6 +5,9 @@ import {
   type EvaluationSplit,
 } from "../evaluation/protocol";
 import { stableHash } from "../events/stable-hash";
+import { FITTABLE_STYLE_CELL_IDS } from "./fittable-style-cells";
+
+export { FITTABLE_STYLE_CELL_IDS } from "./fittable-style-cells";
 
 export const PHASE6_CALIBRATION_RUNNER_VERSION =
   "phase6-calibration-v2" as const;
@@ -29,16 +32,6 @@ export type Phase6CalibrationCheckpointClassCounts = {
   readonly preOpponentChoice: number;
 };
 
-const STRESS_ONLY_STYLE_IDS = new Set([
-  "c16_noisy-mixture__phase-switch",
-  "c17_phase-switch__noisy-mixture",
-]);
-
-export const FITTABLE_STYLE_CELL_IDS = Object.freeze(
-  STYLE_CELLS.filter((cell) => !STRESS_ONLY_STYLE_IDS.has(cell.id)).map(
-    (cell) => cell.id,
-  ),
-);
 export const DEVELOPMENT_STYLE_CELL_IDS = Object.freeze(
   STYLE_CELLS.map((cell) => cell.id),
 );
@@ -82,6 +75,11 @@ export type CalibrationScenarioSeed = {
   readonly rotation: 0 | 1 | 2;
   readonly replicate: 0;
   readonly deal: string;
+  /**
+   * Optional opened-manifest user-policy stream. Legacy Phase 6 schedules
+   * omit it and retain their historic scenario-derived user seed.
+   */
+  readonly userPolicy?: string;
   readonly p2Policy: string;
   readonly p3Policy: string;
   readonly chance: string;

@@ -174,9 +174,12 @@ function runWriteTransaction(
 }
 
 function parseStoredRecord(value: unknown): StoredGameRecordV1 {
+  const expectedKeys = ["archive", "savedAt", "schemaVersion"];
   if (
     value === null ||
     typeof value !== "object" ||
+    JSON.stringify(Object.keys(value).sort()) !==
+      JSON.stringify(expectedKeys) ||
     (value as Record<string, unknown>).schemaVersion !== 1 ||
     typeof (value as Record<string, unknown>).archive !== "string" ||
     typeof (value as Record<string, unknown>).savedAt !== "string" ||
@@ -229,4 +232,10 @@ export async function clearSavedGame(): Promise<void> {
       store.delete(GAME_STORE_CURRENT_KEY);
     }),
   );
+}
+
+export function isCorruptGameStoreError(
+  value: unknown,
+): value is GameStoreError {
+  return value instanceof GameStoreError && value.code === "corrupt-record";
 }
