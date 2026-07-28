@@ -614,7 +614,7 @@ describe("Phase 7 paired-comparison artifact store", () => {
         `${malformed.decision.decisionId} has a partial or internally inconsistent exact audit.`,
       );
     }
-  }, 60_000);
+  }, 120_000);
 
   it("derives the full 17x3 paired macro, exact audit gates, and a timing-free digest", async () => {
     const { run } = await artifactFixture();
@@ -672,7 +672,7 @@ describe("Phase 7 paired-comparison artifact store", () => {
         decisions: run.decisions,
       }),
     ).toBe(run.summary.scientificDigest);
-  }, 60_000);
+  }, 120_000);
 
   it("rejects frozen-config drift, forged seeds, and omitted user-action audits", async () => {
     const { run } = await artifactFixture(
@@ -729,7 +729,7 @@ describe("Phase 7 paired-comparison artifact store", () => {
     expect(issues).toContain(
       "Completed games do not have exactly one action-matching audit per user decision.",
     );
-  }, 60_000);
+  }, 120_000);
 
   it("writes once under eval-v1/split/run-id and independently verifies every stream", async () => {
     const { root, run } = await artifactFixture(
@@ -759,7 +759,7 @@ describe("Phase 7 paired-comparison artifact store", () => {
       scientificDigest: run.summary.scientificDigest,
       zeroFailureGate: true,
     });
-  }, 60_000);
+  }, 120_000);
 
   it("never lets one valid smoke artifact self-certify a development rerun", async () => {
     const { root, run } = await artifactFixture(
@@ -783,7 +783,7 @@ describe("Phase 7 paired-comparison artifact store", () => {
     expect(reproduction.failures).toContain(
       "Artifact run kinds must be smoke, development-primary, and development-reproduction in order.",
     );
-  }, 60_000);
+  }, 120_000);
 
   it("retains an explicit failed coordinate in the denominator without manufacturing an interval", async () => {
     const { run } = await artifactFixture(

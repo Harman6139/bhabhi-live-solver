@@ -616,8 +616,10 @@ export async function runPhase8SourceValidation(input: {
     });
     results.push(result);
     if (result.exitCode !== 0 || result.signal !== null) {
+      const log = Buffer.from(result.log).toString("utf8");
+      const logTail = log.slice(-16_384);
       throw new Error(
-        `${command.command} failed; no passing source-validation attestation was created.`,
+        `${command.command} failed; no passing source-validation attestation was created.\n${logTail}`,
       );
     }
   }

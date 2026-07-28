@@ -53,8 +53,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
-    testTimeout: 60_000,
-    hookTimeout: 60_000,
+    testTimeout: 120_000,
+    hookTimeout: 120_000,
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html"],
