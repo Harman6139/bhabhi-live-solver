@@ -16,6 +16,10 @@ describe("browser latency worker route", () => {
       constructor(url: URL | string, options?: WorkerOptions) {
         constructions.push({ url: String(url), options });
       }
+
+      terminate(): void {
+        throw new Error("The construction-only test must not run the worker.");
+      }
     }
     vi.stubGlobal("Worker", WorkerStub);
 
