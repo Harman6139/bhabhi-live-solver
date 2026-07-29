@@ -1341,6 +1341,41 @@ export function runPhase8SupportTune(input: {
       compareText(left.queryId, right.queryId) ||
       compareText(left.arm, right.arm),
   );
+  if (input.scheduleSlice !== undefined) {
+    const completeStyleBaseClusters = completeClusterCount(games);
+    const runFailureCount = run.failures.length;
+    const evidenceSha256 = phase8SupportTuneEvidenceSha256({
+      plan: input.plan,
+      behaviorModel,
+      games,
+      observations,
+    });
+    return Object.freeze({
+      plan: input.plan,
+      behaviorModel,
+      games: Object.freeze(games),
+      observations: Object.freeze(observations),
+      candidateEvaluations: Object.freeze([]),
+      integrity: Object.freeze({
+        scheduledGames: input.plan.scheduledGames,
+        completedGames: games.filter((game) => game.completed).length,
+        expectedStyleBaseClusters: input.plan.scheduledStyleBaseClusters,
+        completeStyleBaseClusters,
+        incompleteStyleBaseClusters:
+          input.plan.scheduledStyleBaseClusters - completeStyleBaseClusters,
+        runFailureCount,
+        structuralFailureCount: input.plan.scheduledGames - games.length,
+        candidateAccountingExpected: 0,
+        candidateAccountingActual: 0,
+        rawZeroFeasibleTruthCount: rawZeroFeasibleTruths(observations),
+        hardKnownViolationCount: hardKnownViolations(observations),
+        passed: false,
+      }),
+      evidenceSha256,
+      selection: null,
+      provisionalSelectedPseudocount: 0.25,
+    });
+  }
   const scored = scorePhase8SupportTuneCandidates({
     plan: input.plan,
     games,
@@ -1355,7 +1390,7 @@ export function runPhase8SupportTune(input: {
   });
   const winner = deterministicCandidateWinner(scored.evaluations);
   let selection: Phase8SupportRegularizerTuneSelection | null = null;
-  if (input.plan.mode === "evidence" && input.scheduleSlice === undefined) {
+  if (input.plan.mode === "evidence") {
     if (
       !scored.integrity.passed ||
       scored.integrity.completeStyleBaseClusters !==

@@ -44,6 +44,7 @@ import {
   createPhase8SupportTunePlan,
   iteratePhase8SupportTuneSchedule,
   phase8SupportTuneEvidenceSha256,
+  runPhase8SupportTune,
   scorePhase8SupportTuneCandidates,
   type Phase8SupportTuneGameRecord,
   type Phase8SupportTuneObservationRecord,
@@ -417,6 +418,31 @@ describe("Phase 8 support-regularizer tune evidence", () => {
     expect(stableStringify(first)).not.toMatch(
       /"(?:deal|hands|runnerSeed|seeds)"/u,
     );
+  }, 60_000);
+
+  it("returns raw evidence without prematurely scoring an authorized shard", () => {
+    const { model, tuneAuthority: frozen, opening, plan } = fixture("smoke");
+    const styleCellId = plan.styleCellIds[0];
+    if (styleCellId === undefined) {
+      throw new Error("Support-tune fixture has no style cell.");
+    }
+    const run = runPhase8SupportTune({
+      tuneAuthority: frozen,
+      opening,
+      plan,
+      behaviorModel: model,
+      scheduleSlice: {
+        styleCellId,
+        baseIndexStart: plan.baseIndexStart,
+        baseCount: 1,
+      },
+    });
+
+    expect(run.games).toHaveLength(3);
+    expect(run.candidateEvaluations).toEqual([]);
+    expect(run.selection).toBeNull();
+    expect(run.integrity.runFailureCount).toBe(0);
+    expect(run.integrity.passed).toBe(false);
   }, 60_000);
 
   it("requires a tune-only authority bound to selected behavior bytes and rejects confirmatory openings", () => {
