@@ -1,12 +1,11 @@
 # Getaway Live Solver
 
 A local-first, three-player Bhabhi / Getaway tracker and decision aid. It
-records a public game timeline, preserves card-accounting invariants, maintains
-correlated hidden-hand uncertainty, and evaluates every legal user action by
-estimated terminal Bhabhi risk in a dedicated browser worker.
+records the public game, preserves card-accounting and truth-firewall
+invariants, maintains correlated hidden-hand uncertainty, and evaluates every
+legal user action by estimated terminal Bhabhi risk in a dedicated worker.
 
-No game data or analysis is sent to a server. IndexedDB persistence, archive
-import/export, inference, and search all run on the device.
+No game data or analysis is sent to a server.
 
 ## Requirements
 
@@ -14,50 +13,43 @@ import/export, inference, and search all run on the device.
 - npm 10 or newer
 - Chromium installed by Playwright for browser tests
 
-## Install and run
+## Download the selected release evidence
+
+The source is commit `b82e68a56b914197328dbef0a8e519207e8f47b7`. The external selected bundle is
+kept outside the scientific source snapshot and can be downloaded from the
+successful [release Actions run](https://github.com/Harman6139/bhabhi-live-solver/actions/runs/30480677017):
+
+```powershell
+gh run download 30480677017 --repo Harman6139/bhabhi-live-solver --name "phase8-recovery-selected-release-30480677017-1" --dir artifacts
+```
+
+Locate `production-release-bundle.json` under
+`artifacts/phase9-reference-release-20260729-d2/`,
+then build the exact selected application:
 
 ```powershell
 npm ci
 npx playwright install chromium
-npm run dev
-```
-
-Open the local URL printed by Vite. For a production preview:
-
-```powershell
-npm run build
-npm run preview
-```
-
-An ordinary source build intentionally has no selected solver release. It still
-supports setup, tracking, corrections, persistence, import, and export. A live
-recommendation is enabled only when a cryptographically verified
-`release-selected` bundle is injected:
-
-```powershell
-$env:BHABHI_RELEASE_BUNDLE_PATH = (Resolve-Path "artifacts/release/phase9-reference-release-20260728-a/production-release-bundle.json")
+$env:BHABHI_RELEASE_BUNDLE_PATH = (Resolve-Path "artifacts/phase9-reference-release-20260729-d2/production-release-bundle.json")
 $env:BHABHI_RELEASE_EXPECT_MODE = "release-selected"
 npm run build
 npm run preview
 ```
 
+An ordinary source build still supports setup, tracking, corrections,
+persistence, import, and export, but deliberately refuses production
+recommendations until a verified `release-selected` bundle is injected.
+
 ## Play
 
 1. Select the rule profile and enter your exact starting hand.
 2. Record each public play, pickup, waste draw, player draw, or take-hand event.
-3. At each user decision, choose an analysis budget. The worker first publishes
-   an Instant result, then refines it when applicable.
-4. Read the ranked legal alternatives, terminal-risk estimate, interval or
-   exactness label, causal explanation, and public-only diagnostics.
-5. Use **Correct**, **Undo**, or **Redo** at any time. Analysis is invalidated
-   immediately and rebuilt from the corrected public history.
-6. Export the canonical archive when you want a portable local backup.
-
-The default is the Pagat-style clockwise three-player profile documented in
-`docs/bhabhi-research.md`. Supported alternatives cover opening mode,
-direction, take-hand rules, zero-card power, waste/draw handling, and the
-implemented heads-up transition profiles. Unsupported household variants are
-listed in that research ledger.
+3. On each user turn choose Instant, Balanced, Deep, or Offline analysis.
+4. Read the recommendation, ranked legal alternatives, terminal-risk estimate,
+   uncertainty label, causal explanation, and public-only diagnostics.
+5. Use Correct, Undo, or Redo at any time; obsolete analysis is cancelled and
+   can never overwrite the corrected state.
+6. Export the canonical archive for a portable local backup.
 
 ## Test
 
@@ -75,56 +67,34 @@ npm run test:calibration
 npm run test:e2e
 ```
 
-`npm run release:verify` runs the formatting, lint, type, complete unit and
-regression suite, production build, and browser E2E suite in one command.
+`npm run release:verify` runs the formatting, lint, type, complete regression,
+production-build, and browser E2E suite. The create-exclusive Phase 9
+attestation additionally replays these checks from a fresh clean worktree and
+verifies the selected-route latency/cancellation evidence.
 
 ## Reproduce the principal evidence
 
-The immutable raw artifacts are local under `artifacts/` and are excluded from
-Git because of their size. Each run contains checksums and a verifier-readable
-manifest. The final measured paths and results are catalogued in
-`docs/final-report.md`.
+The first release follows ADR 0009's preregistered reference-only path and ADR
+0011's independently durable shard protocol. Exact commands, sample counts,
+hashes, latency distributions, hardware, selected/rejected components, and
+artifact IDs are in [docs/final-report.md](docs/final-report.md).
 
-The first release follows ADR 0009's preregistered reference-only path. It does
-not claim that the reference beats itself, and it does not relabel an
-unimplemented advanced worker route. From the clean Phase 7 baseline and its
-verified development artifact, the dependency order is:
-
-```powershell
-npm run eval:phase8:prepare-reference
-
-$qa = "artifacts/evaluation/eval-v1/qualification/authorities/phase8-reference-qualification-20260728-a"
-npm run eval:phase8:create-corpus -- --authority "$qa/phase8-manifest-authority.json" --output "$qa/latency-corpus.json" --corpus-id "phase8-reference-qualification-latency-20260728-a"
-npm run eval:phase8:create-bundle -- --authority "$qa/phase8-manifest-authority.json" --model "$qa/model-not-applicable.json" --config-id "p8-r-hard-balanced-v1" --output "$qa/evaluation-bundle.json"
-$env:BHABHI_RELEASE_BUNDLE_PATH = (Resolve-Path "$qa/evaluation-bundle.json")
-$env:BHABHI_RELEASE_EXPECT_MODE = "evaluation-only"
-npm run build
-npm run eval:phase8:terminal -- --scope qualification --authority "$qa/phase8-manifest-authority.json" --opening "$qa/qualification-opening.json" --model "$qa/model-not-applicable.json" --output-root "artifacts/evaluation/eval-v1/qualification/terminal" --run-id "phase8-reference-qualification-terminal-20260728-a" --concurrency 4
-npm run bench:latency -- --evidence-eligible --run-id "phase8-reference-qualification-latency-20260728-a" --manifest "$qa/qualification-manifest.json" --corpus "$qa/latency-corpus.json" --config-id "p8-r-hard-balanced-v1" --dist dist --power-mode "Windows Balanced" --power-source "AC power" --background-load "no-controlled-background-load"
-npm run eval:phase8:qualify-reference -- --authority-directory "$qa" --terminal-run "artifacts/evaluation/eval-v1/qualification/terminal/phase8-reference-qualification-terminal-20260728-a" --terminal-report "artifacts/evaluation/eval-v1/qualification/terminal/phase8-reference-qualification-terminal-20260728-a-statistical-report.json" --latency-run "artifacts/evaluation/eval-v1/qualification/phase8-latency/phase8-reference-qualification-latency-20260728-a"
-```
-
-The qualification command freezes and opens the final authority. Repeat corpus,
-evaluation-bundle, production-build, terminal, and latency commands against
-`artifacts/evaluation/eval-v1/final/authorities/phase8-reference-final-20260728-a`;
-then run `npm run eval:phase8:finalize-reference` with the resulting final paths.
-The exact expanded final and Phase 9 commands, hashes, sample counts, and
-hardware record are preserved in `docs/final-report.md`.
+The complete dependency-safe run is
+[GitHub Actions 30480677017](https://github.com/Harman6139/bhabhi-live-solver/actions/runs/30480677017). It reuses 39 verified
+qualification shards, opens final only after qualification passes, runs 39
+untouched-final shards alongside final browser latency, creates the selected
+bundle, measures that exact route, and executes Phase 9 release validation.
 
 Do not edit executable source, preregistration, tests, scripts, or lockfiles
-after qualification opens. Generated evidence is create-exclusive: use a new
-run ID for a genuine clean rerun.
+after qualification opens. Generated evidence is create-exclusive; use a new
+authority and run ID for a genuine scientific rerun.
 
 ## Architecture and limitations
 
-The application is strict TypeScript and React. Pure rules/replay, hard
-inference, behavior research, terminal search, evaluation-only simulator truth,
-production release verification, worker protocol, and UI layers have explicit
-boundaries. Production inference/search/worker/UI imports are guarded by a
-transitive truth firewall.
-
-The first selected release is the measured hard-only Balanced reference. Exact
-endgame and behavioral weighting remain disabled because no browser-executable,
-cleanly eligible advanced route was available before the split opened. Rule
-sources are community descriptions rather than a governing standard; choose a
-supported profile that matches the household before play.
+Strict TypeScript separates rules/replay, hard inference, behavior research,
+terminal search, simulator truth, production release verification, worker
+protocol, and React UI. Production code is guarded by a transitive truth
+firewall. The selected route is hard-only Balanced; behavioral weighting and
+exact-endgame dispatch remain disabled because they were not eligible in this
+frozen browser-executable registry. Unsupported household variants require an
+explicit typed profile.

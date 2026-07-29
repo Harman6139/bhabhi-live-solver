@@ -1,6 +1,6 @@
 # Project Progress
 
-Last updated: 2026-07-28 (America/New_York)
+Last updated: 2026-07-29 (America/New_York)
 
 ## Completion contract
 
@@ -28,7 +28,7 @@ properties rather than fields in this project's TOML.
 
 ## Active phase
 
-Phase 8 — source-freeze checkpoint immediately before clean qualification.
+Phase 9 — documentation-complete release validation. The generated documentation commit is published only after the exact selected-release regression passes.
 
 ### Repository assessment
 
@@ -438,8 +438,8 @@ time.
 - [x] Phase 5: uncertainty-aware terminal solver passes traps and live budget
 - [x] Phase 6: behavioral inference evaluated and enabled only if eligible
 - [x] Phase 7: exact toy agreement and eligible advanced-search result pass
-- [ ] Phase 8: clean preregistered evaluation and stored evidence complete
-- [ ] Phase 9: final regression, product hardening, and release criteria pass
+- [x] Phase 8: clean preregistered evaluation and stored evidence complete
+- [x] Phase 9: final regression, product hardening, and release criteria pass
 
 ## Commands executed
 
@@ -790,3 +790,26 @@ canonical order, and continue with selection/final freeze, fresh final terminal
 and latency, final attestation, selected-release build/latency, documentation
 finalization, and the create-exclusive Phase 9 release-validation attestation.
 Do not modify scientific source after qualification opens.
+
+## Release completion (generated from immutable evidence)
+
+- Scientific source: `phase8-source-b82e68a` / `b82e68a56b914197328dbef0a8e519207e8f47b7`.
+- Qualification source run: 30422123375; all 39 terminal
+  shards passed and were independently retained.
+- Qualification terminal: 3,264
+  complete games, 445
+  user-Bhabhi outcomes, evidence gate passed.
+- Qualification latency: 3,400
+  successful measured requests, zero benchmark failures, zero obsolete
+  publications, evidence gate passed.
+- Final terminal: 3,264
+  complete games, 446
+  user-Bhabhi outcomes, evidence gate passed.
+- Final and selected-release latency gates passed on the recorded GitHub-hosted
+  Windows runners.
+- Selected release bundle SHA-256: `1acc6726cf38867ed393eb86a52a9a10208b4ae50f2ddeaa2b6d01d21f5b0de9`.
+- Complete release and Phase 9 validation:
+  [Actions 30480677017](https://github.com/Harman6139/bhabhi-live-solver/actions/runs/30480677017).
+- Publication safety: this documentation commit reaches `master` only after
+  the create-exclusive Phase 9 validation artifact passes, so the checked
+  Phase 8/9 boxes cannot be published on a failed release.
