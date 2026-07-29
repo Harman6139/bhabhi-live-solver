@@ -1,0 +1,147 @@
+name: Build playable B and BE engines
+
+on:
+  workflow_run:
+    workflows: ["Tune support and build B-BE production model"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      model_run_id:
+        description: Successful Tune support and build B-BE production model run ID
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  playable:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    name: Build and browser-smoke ${{ matrix.key }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - key: B
+            slug: b
+            config_id: p8-b-behavior-balanced-v1
+            bundle_file: b-evaluation-bundle.json
+          - key: BE
+            slug: be
+            config_id: p8-be-behavior-exact-fallback-v1
+            bundle_file: be-evaluation-bundle.json
+    env:
+      MODEL_RUN_ID: ${{ inputs.model_run_id || github.event.workflow_run.id }}
+
+    steps:
+      - name: Check out isolated browser-preview source
+        uses: actions/checkout@v4
+        with:
+          ref: codex/play-preview
+          fetch-depth: 0
+
+      - name: Download sealed B-BE model package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/model"
+          gh run download "$MODEL_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "b-be-production-model-*" \
+            --dir "$RUNNER_TEMP/model"
+
+      - name: Bind explicit evaluation-preview mode
+        id: binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="$(find "$RUNNER_TEMP/model" -type f -name "${{ matrix.bundle_file }}" -print -quit)"
+          test -n "$bundle"
+          mkdir -p work/play-preview
+          cp "$bundle" work/play-preview/evaluation-bundle.json
+          bundle_sha="$(sha256sum work/play-preview/evaluation-bundle.json | cut -d' ' -f1)"
+          echo "BHABHI_RELEASE_BUNDLE_PATH=$GITHUB_WORKSPACE/work/play-preview/evaluation-bundle.json" >> "$GITHUB_ENV"
+          echo "BHABHI_RELEASE_EXPECT_MODE=evaluation-only" >> "$GITHUB_ENV"
+          echo "VITE_BHABHI_EVALUATION_PREVIEW=true" >> "$GITHUB_ENV"
+          echo "bundle_sha=$bundle_sha" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck and build the local-only engine
+        run: |
+          npm run typecheck
+          npm run build
+
+      - name: Install Chromium
+        run: npx playwright install chromium
+
+      - name: Prove a real browser publishes a recommendation
+        run: >-
+          npx playwright test tests/e2e/evaluation-preview.spec.ts
+          --project desktop-chromium
+
+      - name: Package standalone playable engine
+        shell: bash
+        env:
+          BUNDLE_SHA: ${{ steps.binding.outputs.bundle_sha }}
+        run: |
+          set -euo pipefail
+          target="work/${{ matrix.slug }}-playable"
+          mkdir -p "$target"
+          cp -a dist "$target/"
+          cp scripts/serve-play-preview.mjs "$target/"
+          cat > "$target/README.txt" <<EOF
+          Bhabhi live solver — ${{ matrix.key }} engine
+
+          Engine ID: ${{ matrix.config_id }}
+          Mode: locally executed evaluation build
+
+          Requirements: Node.js 22.12 or newer.
+          Run: node serve-play-preview.mjs
+          Open: http://127.0.0.1:4173
+
+          Enter your exact starting hand and every public play, pickup, draw,
+          and take-hand event. All recommendation computation stays in your
+          browser. This practical build does not claim the skipped GOAL.md
+          release paperwork.
+          EOF
+          cat > "$target/engine-manifest.json" <<EOF
+          {
+            "schemaVersion": 1,
+            "mode": "trained-practical-evaluation-build",
+            "solverConfigId": "${{ matrix.config_id }}",
+            "productionModelRunId": "$MODEL_RUN_ID",
+            "evaluationBundleSha256": "$BUNDLE_SHA",
+            "actionsRunId": "$GITHUB_RUN_ID",
+            "actionsRunAttempt": "$GITHUB_RUN_ATTEMPT"
+          }
+          EOF
+          (
+            cd "$target"
+            find . -type f ! -name checksums.sha256 -print0 |
+              sort -z |
+              xargs -0 sha256sum > checksums.sha256
+          )
+
+      - name: Upload playable engine
+        uses: actions/upload-artifact@v4
+        with:
+          name: bhabhi-${{ matrix.slug }}-playable-${{ github.run_id }}
+          path: work/${{ matrix.slug }}-playable
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
