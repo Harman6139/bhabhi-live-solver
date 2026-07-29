@@ -4,6 +4,7 @@ import { formatCard, parseCard, type Card } from "../domain/cards";
 import type { Seat } from "../domain/seats";
 import {
   appendTimelineEvent,
+  exportGameArchive,
   replayTimeline,
   undoTimeline,
   type GameTimeline,
@@ -182,6 +183,22 @@ export function PlayScreen({
     setNotice("Last entry undone.");
   }
 
+  function exportGame(): void {
+    const archive = exportGameArchive(timeline);
+    const blobUrl = URL.createObjectURL(
+      new Blob([archive], { type: "application/json" }),
+    );
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = `bhabhi-game-${new Date()
+      .toISOString()
+      .replaceAll(":", "-")
+      .replaceAll(".", "-")}.json`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 0);
+    setNotice("Game archive exported.");
+  }
+
   return (
     <main className="app-shell play-shell">
       <header className="play-header">
@@ -200,6 +217,9 @@ export function PlayScreen({
             disabled={timeline.cursor <= 1}
           >
             Undo
+          </button>
+          <button className="text-button" type="button" onClick={exportGame}>
+            Export game
           </button>
           <button
             className="text-button"
