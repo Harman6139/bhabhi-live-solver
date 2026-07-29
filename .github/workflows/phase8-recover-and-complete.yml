@@ -1,0 +1,1077 @@
+name: Phase 8/9 recover and complete
+
+on:
+  workflow_dispatch:
+    inputs:
+      qualification_run_id:
+        description: Completed sharded qualification run containing the opened authority and 39 shards
+        required: true
+        type: string
+        default: "30422123375"
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: phase8-recover-and-complete
+  cancel-in-progress: false
+
+env:
+  SOURCE_REF: phase8-source-b82e68a
+  SOURCE_COMMIT: b82e68a56b914197328dbef0a8e519207e8f47b7
+  ORCHESTRATION_REF: ci-orchestration
+  QUALIFICATION_AUTHORITY_ID: phase8-reference-qualification-20260729-d
+  QUALIFICATION_TERMINAL_ID: phase8-reference-qualification-terminal-20260729-d-sharded
+  QUALIFICATION_LATENCY_ID: phase8-reference-qualification-latency-20260729-d2-actions
+  QUALIFICATION_BUNDLE_ID: phase8-reference-qualification-bundle-20260729-d2
+  FINAL_AUTHORITY_ID: phase8-reference-final-20260729-d2
+  FINAL_TERMINAL_ID: phase8-reference-final-terminal-20260729-d2-sharded
+  FINAL_LATENCY_ID: phase8-reference-final-latency-20260729-d2-actions
+  FINAL_BUNDLE_ID: phase8-reference-final-bundle-20260729-d2
+  RELEASE_ID: phase9-reference-release-20260729-d2
+  SELECTED_LATENCY_ID: phase9-reference-selected-latency-20260729-d2-actions
+  VALIDATION_ID: phase9-reference-release-validation-20260729-d2-actions
+  CONFIG_ID: p8-r-hard-balanced-v1
+  SHARD_COUNT: "39"
+  CI_LOG_DIR: artifacts/ci-logs
+
+jobs:
+  merge-qualification-terminal:
+    name: Verify and merge 39 qualification shards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out frozen scientific source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
+
+      - name: Download opened qualification authority
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-sharded-prepared-${{ inputs.qualification_run_id }}
+          path: ${{ runner.temp }}/prepared
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.qualification_run_id }}
+
+      - name: Download every completed qualification shard
+        uses: actions/download-artifact@v4
+        with:
+          pattern: phase8-qualification-shard-${{ inputs.qualification_run_id }}-*
+          path: ${{ runner.temp }}/qualification-shards
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.qualification_run_id }}
+
+      - name: Restore authority and bound orchestration tool
+        shell: bash
+        run: |
+          set -euo pipefail
+          qa_parent="artifacts/evaluation/eval-v1/qualification/authorities"
+          authority="$(find "$RUNNER_TEMP/prepared" -type d -name "$QUALIFICATION_AUTHORITY_ID" -print -quit)"
+          test -n "$authority"
+          mkdir -p "$qa_parent" work/ci-tools "$CI_LOG_DIR"
+          cp -a "$authority" "$qa_parent/"
+          git fetch --no-tags origin "$ORCHESTRATION_REF:refs/remotes/origin/$ORCHESTRATION_REF"
+          git show "origin/$ORCHESTRATION_REF:.github/scripts/merge-phase8-terminal-shards.ts" \
+            > work/ci-tools/merge-phase8-terminal-shards.ts
+          sha256sum work/ci-tools/merge-phase8-terminal-shards.ts | tee "$CI_LOG_DIR/qualification-merger.sha256"
+          test "$(find "$RUNNER_TEMP/qualification-shards" -type f -name shard-manifest.json | wc -l)" -eq "$SHARD_COUNT"
+          test -z "$(git status --short --untracked-files=all)"
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Deterministically merge and reopen all terminal evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          qa="artifacts/evaluation/eval-v1/qualification/authorities/$QUALIFICATION_AUTHORITY_ID"
+          npx tsx work/ci-tools/merge-phase8-terminal-shards.ts \
+            --scope qualification \
+            --authority "$qa/phase8-manifest-authority.json" \
+            --opening "$qa/qualification-opening.json" \
+            --model "$qa/model-not-applicable.json" \
+            --shards-root "$RUNNER_TEMP/qualification-shards" \
+            --shard-count "$SHARD_COUNT" \
+            --output-root artifacts/evaluation/eval-v1/qualification/terminal \
+            --run-id "$QUALIFICATION_TERMINAL_ID" | tee "$CI_LOG_DIR/qualification-merge.log"
+
+      - name: Upload verified canonical qualification terminal
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-recovery-qualification-terminal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.CI_LOG_DIR }}/qualification-merger.sha256
+            ${{ env.CI_LOG_DIR }}/qualification-merge.log
+            artifacts/evaluation/eval-v1/qualification/terminal/${{ env.QUALIFICATION_TERMINAL_ID }}
+            artifacts/evaluation/eval-v1/qualification/terminal/${{ env.QUALIFICATION_TERMINAL_ID }}-statistical-report.json
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+
+  qualification-latency:
+    name: Replacement qualification browser latency
+    runs-on: windows-2025
+    timeout-minutes: 360
+    steps:
+      - name: Check out frozen scientific source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
+
+      - name: Download opened qualification authority
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-sharded-prepared-${{ inputs.qualification_run_id }}
+          path: ${{ runner.temp }}/prepared
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.qualification_run_id }}
+
+      - name: Restore browser inputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'prepared') -Directory -Recurse |
+            Where-Object { $_.Name -eq $env:QUALIFICATION_AUTHORITY_ID } |
+            Select-Object -First 1
+          if ($null -eq $source) {
+            throw 'Prepared artifact has no qualification authority.'
+          }
+          $parent = 'artifacts/evaluation/eval-v1/qualification/authorities'
+          New-Item -ItemType Directory -Force -Path $parent | Out-Null
+          Copy-Item -LiteralPath $source.FullName -Destination $parent -Recurse
+          if (git status --short --untracked-files=all) {
+            throw 'Restoring ignored qualification inputs made the worktree dirty.'
+          }
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install chromium
+
+      - name: Build exact evaluation-only route
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $qa = "artifacts/evaluation/eval-v1/qualification/authorities/$env:QUALIFICATION_AUTHORITY_ID"
+          $env:BHABHI_RELEASE_BUNDLE_PATH = (Resolve-Path "$qa/evaluation-bundle.json").Path
+          $env:BHABHI_RELEASE_EXPECT_MODE = 'evaluation-only'
+          npm run build
+
+      - name: Run unchanged full qualification latency contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $qa = "artifacts/evaluation/eval-v1/qualification/authorities/$env:QUALIFICATION_AUTHORITY_ID"
+          npx tsx scripts/bench-phase8-latency.ts `
+            --evidence-eligible `
+            --run-id $env:QUALIFICATION_LATENCY_ID `
+            --manifest "$qa/qualification-manifest.json" `
+            --corpus "$qa/latency-corpus.json" `
+            --config-id $env:CONFIG_ID `
+            --dist dist `
+            --output-parent 'artifacts/evaluation/eval-v1/qualification/phase8-latency' `
+            --power-mode 'GitHub Actions Windows hosted runner' `
+            --power-source 'provider-managed hosted runner' `
+            --background-load 'dedicated standard hosted runner; provider load uncontrolled'
+
+      - name: Upload immutable replacement qualification latency
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-recovery-qualification-latency-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/evaluation/eval-v1/qualification/phase8-latency/${{ env.QUALIFICATION_LATENCY_ID }}
+            artifacts/evaluation/eval-v1/qualification/phase8-latency/.incomplete-${{ env.QUALIFICATION_LATENCY_ID }}*
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 30
+
+  qualify:
+    name: Verify qualification and open untouched final split
+    needs:
+      - merge-qualification-terminal
+      - qualification-latency
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out frozen scientific source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
+
+      - name: Download opened qualification authority
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-sharded-prepared-${{ inputs.qualification_run_id }}
+          path: ${{ runner.temp }}/prepared
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.qualification_run_id }}
+
+      - name: Download merged qualification terminal
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-recovery-qualification-terminal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/qualification-terminal
+
+      - name: Download passing qualification latency
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-recovery-qualification-latency-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/qualification-latency
+
+      - name: Restore byte-exact qualification evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          qa="artifacts/evaluation/eval-v1/qualification/authorities/$QUALIFICATION_AUTHORITY_ID"
+          terminal_parent="artifacts/evaluation/eval-v1/qualification/terminal"
+          latency_parent="artifacts/evaluation/eval-v1/qualification/phase8-latency"
+          mkdir -p "$qa" "$terminal_parent" "$latency_parent" "$CI_LOG_DIR"
+          authority="$(find "$RUNNER_TEMP/prepared" -type d -name "$QUALIFICATION_AUTHORITY_ID" -print -quit)"
+          terminal_run="$(find "$RUNNER_TEMP/qualification-terminal" -type d -name "$QUALIFICATION_TERMINAL_ID" -print -quit)"
+          terminal_report="$(find "$RUNNER_TEMP/qualification-terminal" -type f -name "$QUALIFICATION_TERMINAL_ID-statistical-report.json" -print -quit)"
+          latency_run="$(find "$RUNNER_TEMP/qualification-latency" -type d -name "$QUALIFICATION_LATENCY_ID" -print -quit)"
+          test -n "$authority"
+          test -n "$terminal_run"
+          test -n "$terminal_report"
+          test -n "$latency_run"
+          cp -a "$authority/." "$qa/"
+          cp -a "$terminal_run" "$terminal_parent/"
+          cp -a "$terminal_report" "$terminal_parent/"
+          cp -a "$latency_run" "$latency_parent/"
+          test -z "$(git status --short --untracked-files=all)"
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Select configuration and create final authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          qa="artifacts/evaluation/eval-v1/qualification/authorities/$QUALIFICATION_AUTHORITY_ID"
+          terminal="artifacts/evaluation/eval-v1/qualification/terminal/$QUALIFICATION_TERMINAL_ID"
+          latency="artifacts/evaluation/eval-v1/qualification/phase8-latency/$QUALIFICATION_LATENCY_ID"
+          npx tsx scripts/qualify-phase8-reference.ts \
+            --authority-directory "$qa" \
+            --terminal-run "$terminal" \
+            --terminal-report "${terminal}-statistical-report.json" \
+            --latency-run "$latency" \
+            --bundle-id "$QUALIFICATION_BUNDLE_ID" \
+            --final-authority-id "$FINAL_AUTHORITY_ID" | tee "$CI_LOG_DIR/qualify.log"
+
+      - name: Upload qualification decision and final authority
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-recovery-qualified-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.CI_LOG_DIR }}/qualify.log
+            artifacts/evaluation/eval-v1/qualification/evidence-bundles/${{ env.QUALIFICATION_BUNDLE_ID }}
+            artifacts/evaluation/eval-v1/final/authorities/${{ env.FINAL_AUTHORITY_ID }}
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+
+  final-terminal-shards:
+    name: Final terminal shard ${{ matrix.shard }} of 39
+    needs: qualify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 39
+      matrix:
+        shard:
+          - 0
+          - 1
+          - 2
+          - 3
+          - 4
+          - 5
+          - 6
+          - 7
+          - 8
+          - 9
+          - 10
+          - 11
+          - 12
+          - 13
+          - 14
+          - 15
+          - 16
+          - 17
+          - 18
+          - 19
+          - 20
+          - 21
+          - 22
+          - 23
+          - 24
+          - 25
+          - 26
+          - 27
+          - 28
+          - 29
+          - 30
+          - 31
+          - 32
+          - 33
+          - 34
+          - 35
+          - 36
+          - 37
+          - 38
+    steps:
+      - name: Check out frozen scientific source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
+
+      - name: Download final authority
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-recovery-qualified-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/qualified
+
+      - name: Download qualification authority
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-sharded-prepared-${{ inputs.qualification_run_id }}
+          path: ${{ runner.temp }}/prepared
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.qualification_run_id }}
+
+      - name: Restore final shard inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          qa="artifacts/evaluation/eval-v1/qualification/authorities/$QUALIFICATION_AUTHORITY_ID"
+          final_parent="artifacts/evaluation/eval-v1/final/authorities"
+          qa_source="$(find "$RUNNER_TEMP/prepared" -type d -name "$QUALIFICATION_AUTHORITY_ID" -print -quit)"
+          final_source="$(find "$RUNNER_TEMP/qualified" -type d -name "$FINAL_AUTHORITY_ID" -print -quit)"
+          test -n "$qa_source"
+          test -n "$final_source"
+          mkdir -p "$qa" "$final_parent" "$CI_LOG_DIR"
+          cp -a "$qa_source/phase8-manifest-authority.json" "$qa/"
+          cp -a "$final_source" "$final_parent/"
+          test -z "$(git status --short --untracked-files=all)"
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Compute one independently durable final shard
+        shell: bash
+        run: |
+          set -euo pipefail
+          qa="artifacts/evaluation/eval-v1/qualification/authorities/$QUALIFICATION_AUTHORITY_ID"
+          final="artifacts/evaluation/eval-v1/final/authorities/$FINAL_AUTHORITY_ID"
+          output="artifacts/evaluation/eval-v1/final/terminal-shards/$FINAL_TERMINAL_ID"
+          npx tsx scripts/run-phase8-terminal-shard.ts \
+            --scope final \
+            --authority "$final/phase8-final-manifest-authority.json" \
+            --opening "$final/final-opening.json" \
+            --qualification-authority "$qa/phase8-manifest-authority.json" \
+            --selection "$final/selection-attestation.json" \
+            --selection-checksum "$final/selection-attestation.checksum" \
+            --model "$final/model-not-applicable.json" \
+            --output-root "$output" \
+            --run-id "$FINAL_TERMINAL_ID" \
+            --concurrency 4 \
+            --shard-index "${{ matrix.shard }}" \
+            --shard-count "$SHARD_COUNT" | tee "$CI_LOG_DIR/final-shard-${{ matrix.shard }}.log"
+
+      - name: Upload independent immutable final shard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-recovery-final-shard-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          path: |
+            ${{ env.CI_LOG_DIR }}/final-shard-${{ matrix.shard }}.log
+            artifacts/evaluation/eval-v1/final/terminal-shards/${{ env.FINAL_TERMINAL_ID }}
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 30
+
+  final-latency:
+    name: Final browser latency
+    needs: qualify
+    runs-on: windows-2025
+    timeout-minutes: 360
+    steps:
+      - name: Check out frozen scientific source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
+
+      - name: Download final authority
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-recovery-qualified-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/qualified
+
+      - name: Restore final authority
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'qualified') -Directory -Recurse |
+            Where-Object { $_.Name -eq $env:FINAL_AUTHORITY_ID } |
+            Select-Object -First 1
+          if ($null -eq $source) {
+            throw 'Downloaded qualification artifact has no final authority.'
+          }
+          $parent = 'artifacts/evaluation/eval-v1/final/authorities'
+          New-Item -ItemType Directory -Force -Path $parent | Out-Null
+          Copy-Item -LiteralPath $source.FullName -Destination $parent -Recurse
+          if (git status --short --untracked-files=all) {
+            throw 'Restoring ignored final authority made the worktree dirty.'
+          }
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install chromium
+
+      - name: Create final corpus and evaluation bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $final = "artifacts/evaluation/eval-v1/final/authorities/$env:FINAL_AUTHORITY_ID"
+          npx tsx scripts/create-phase8-latency-corpus.ts `
+            --authority "$final/phase8-final-manifest-authority.json" `
+            --output "$final/latency-corpus.json" `
+            --corpus-id 'phase8-reference-final-latency-corpus-20260729-d2-actions'
+          npx tsx scripts/create-phase8-execution-bundle.ts `
+            --authority "$final/phase8-final-manifest-authority.json" `
+            --model "$final/model-not-applicable.json" `
+            --config-id $env:CONFIG_ID `
+            --output "$final/evaluation-bundle.json"
+
+      - name: Build exact final evaluation route
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $final = "artifacts/evaluation/eval-v1/final/authorities/$env:FINAL_AUTHORITY_ID"
+          $env:BHABHI_RELEASE_BUNDLE_PATH = (Resolve-Path "$final/evaluation-bundle.json").Path
+          $env:BHABHI_RELEASE_EXPECT_MODE = 'evaluation-only'
+          npm run build
+
+      - name: Run full final latency schedule
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $final = "artifacts/evaluation/eval-v1/final/authorities/$env:FINAL_AUTHORITY_ID"
+          npx tsx scripts/bench-phase8-latency.ts `
+            --evidence-eligible `
+            --run-id $env:FINAL_LATENCY_ID `
+            --manifest "$final/final-manifest.json" `
+            --corpus "$final/latency-corpus.json" `
+            --config-id $env:CONFIG_ID `
+            --dist dist `
+            --output-parent 'artifacts/evaluation/eval-v1/final/phase8-latency' `
+            --power-mode 'GitHub Actions Windows hosted runner' `
+            --power-source 'provider-managed hosted runner' `
+            --background-load 'dedicated standard hosted runner; provider load uncontrolled'
+
+      - name: Upload immutable final latency
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-recovery-final-latency-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/evaluation/eval-v1/final/phase8-latency/${{ env.FINAL_LATENCY_ID }}
+            artifacts/evaluation/eval-v1/final/phase8-latency/.incomplete-${{ env.FINAL_LATENCY_ID }}*
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 30
+
+  merge-final-terminal:
+    name: Verify and merge 39 untouched final shards
+    needs:
+      - qualify
+      - final-terminal-shards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out frozen scientific source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
+
+      - name: Download final authority
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-recovery-qualified-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/qualified
+
+      - name: Download qualification authority
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-sharded-prepared-${{ inputs.qualification_run_id }}
+          path: ${{ runner.temp }}/prepared
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.qualification_run_id }}
+
+      - name: Download every final shard
+        uses: actions/download-artifact@v4
+        with:
+          pattern: phase8-recovery-final-shard-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: ${{ runner.temp }}/final-shards
+          merge-multiple: false
+
+      - name: Restore final merge inputs and bound merger
+        shell: bash
+        run: |
+          set -euo pipefail
+          qa="artifacts/evaluation/eval-v1/qualification/authorities/$QUALIFICATION_AUTHORITY_ID"
+          final_parent="artifacts/evaluation/eval-v1/final/authorities"
+          qa_source="$(find "$RUNNER_TEMP/prepared" -type d -name "$QUALIFICATION_AUTHORITY_ID" -print -quit)"
+          final_source="$(find "$RUNNER_TEMP/qualified" -type d -name "$FINAL_AUTHORITY_ID" -print -quit)"
+          test -n "$qa_source"
+          test -n "$final_source"
+          mkdir -p "$qa" "$final_parent" work/ci-tools "$CI_LOG_DIR"
+          cp -a "$qa_source/phase8-manifest-authority.json" "$qa/"
+          cp -a "$final_source" "$final_parent/"
+          git fetch --no-tags origin "$ORCHESTRATION_REF:refs/remotes/origin/$ORCHESTRATION_REF"
+          git show "origin/$ORCHESTRATION_REF:.github/scripts/merge-phase8-terminal-shards.ts" \
+            > work/ci-tools/merge-phase8-terminal-shards.ts
+          sha256sum work/ci-tools/merge-phase8-terminal-shards.ts | tee "$CI_LOG_DIR/final-merger.sha256"
+          test "$(find "$RUNNER_TEMP/final-shards" -type f -name shard-manifest.json | wc -l)" -eq "$SHARD_COUNT"
+          test -z "$(git status --short --untracked-files=all)"
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Deterministically merge and reopen final evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          qa="artifacts/evaluation/eval-v1/qualification/authorities/$QUALIFICATION_AUTHORITY_ID"
+          final="artifacts/evaluation/eval-v1/final/authorities/$FINAL_AUTHORITY_ID"
+          npx tsx work/ci-tools/merge-phase8-terminal-shards.ts \
+            --scope final \
+            --authority "$final/phase8-final-manifest-authority.json" \
+            --opening "$final/final-opening.json" \
+            --qualification-authority "$qa/phase8-manifest-authority.json" \
+            --selection "$final/selection-attestation.json" \
+            --selection-checksum "$final/selection-attestation.checksum" \
+            --model "$final/model-not-applicable.json" \
+            --shards-root "$RUNNER_TEMP/final-shards" \
+            --shard-count "$SHARD_COUNT" \
+            --output-root artifacts/evaluation/eval-v1/final/terminal \
+            --run-id "$FINAL_TERMINAL_ID" | tee "$CI_LOG_DIR/final-merge.log"
+
+      - name: Upload verified canonical final terminal
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-recovery-final-terminal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.CI_LOG_DIR }}/final-merger.sha256
+            ${{ env.CI_LOG_DIR }}/final-merge.log
+            artifacts/evaluation/eval-v1/final/terminal/${{ env.FINAL_TERMINAL_ID }}
+            artifacts/evaluation/eval-v1/final/terminal/${{ env.FINAL_TERMINAL_ID }}-statistical-report.json
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+
+  finalize:
+    name: Finalize evidence and create selected release
+    needs:
+      - qualify
+      - merge-final-terminal
+      - final-latency
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out frozen scientific source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
+
+      - name: Download opened qualification authority
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-sharded-prepared-${{ inputs.qualification_run_id }}
+          path: ${{ runner.temp }}/prepared
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.qualification_run_id }}
+
+      - name: Download qualification decision and final authority
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-recovery-qualified-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/qualified
+
+      - name: Download merged final terminal
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-recovery-final-terminal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/final-terminal
+
+      - name: Download final latency
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-recovery-final-latency-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/final-latency
+
+      - name: Restore finalization inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          qa="artifacts/evaluation/eval-v1/qualification/authorities/$QUALIFICATION_AUTHORITY_ID"
+          qualification_bundle_parent="artifacts/evaluation/eval-v1/qualification/evidence-bundles"
+          final_authority_parent="artifacts/evaluation/eval-v1/final/authorities"
+          final_terminal_parent="artifacts/evaluation/eval-v1/final/terminal"
+          final_latency_parent="artifacts/evaluation/eval-v1/final/phase8-latency"
+          mkdir -p "$qa" "$qualification_bundle_parent" "$final_authority_parent" "$final_terminal_parent" "$final_latency_parent" "$CI_LOG_DIR"
+          qualification_authority="$(find "$RUNNER_TEMP/prepared" -type d -name "$QUALIFICATION_AUTHORITY_ID" -print -quit)"
+          qualification_bundle="$(find "$RUNNER_TEMP/qualified" -type d -name "$QUALIFICATION_BUNDLE_ID" -print -quit)"
+          final_authority="$(find "$RUNNER_TEMP/qualified" -type d -name "$FINAL_AUTHORITY_ID" -print -quit)"
+          final_terminal="$(find "$RUNNER_TEMP/final-terminal" -type d -name "$FINAL_TERMINAL_ID" -print -quit)"
+          final_report="$(find "$RUNNER_TEMP/final-terminal" -type f -name "$FINAL_TERMINAL_ID-statistical-report.json" -print -quit)"
+          final_latency="$(find "$RUNNER_TEMP/final-latency" -type d -name "$FINAL_LATENCY_ID" -print -quit)"
+          test -n "$qualification_authority"
+          test -n "$qualification_bundle"
+          test -n "$final_authority"
+          test -n "$final_terminal"
+          test -n "$final_report"
+          test -n "$final_latency"
+          cp -a "$qualification_authority/." "$qa/"
+          cp -a "$qualification_bundle" "$qualification_bundle_parent/"
+          cp -a "$final_authority" "$final_authority_parent/"
+          cp -a "$final_terminal" "$final_terminal_parent/"
+          cp -a "$final_report" "$final_terminal_parent/"
+          cp -a "$final_latency" "$final_latency_parent/"
+          test -z "$(git status --short --untracked-files=all)"
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Create final attestation and selected bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          qa="artifacts/evaluation/eval-v1/qualification/authorities/$QUALIFICATION_AUTHORITY_ID"
+          qualification_bundle="artifacts/evaluation/eval-v1/qualification/evidence-bundles/$QUALIFICATION_BUNDLE_ID"
+          final_authority="artifacts/evaluation/eval-v1/final/authorities/$FINAL_AUTHORITY_ID"
+          final_terminal="artifacts/evaluation/eval-v1/final/terminal/$FINAL_TERMINAL_ID"
+          final_latency="artifacts/evaluation/eval-v1/final/phase8-latency/$FINAL_LATENCY_ID"
+          npx tsx scripts/finalize-phase8-reference.ts \
+            --final-authority-directory "$final_authority" \
+            --qualification-authority-directory "$qa" \
+            --qualification-bundle-directory "$qualification_bundle" \
+            --terminal-run "$final_terminal" \
+            --terminal-report "${final_terminal}-statistical-report.json" \
+            --latency-run "$final_latency" \
+            --bundle-id "$FINAL_BUNDLE_ID" \
+            --release-id "$RELEASE_ID" | tee "$CI_LOG_DIR/finalize.log"
+
+      - name: Upload final attestation and selected bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-recovery-finalized-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.CI_LOG_DIR }}/finalize.log
+            artifacts/evaluation/eval-v1/qualification/evidence-bundles/${{ env.QUALIFICATION_BUNDLE_ID }}
+            artifacts/evaluation/eval-v1/final/authorities/${{ env.FINAL_AUTHORITY_ID }}
+            artifacts/evaluation/eval-v1/final/evidence-bundles/${{ env.FINAL_BUNDLE_ID }}
+            artifacts/release/${{ env.RELEASE_ID }}
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+
+  selected-latency:
+    name: Exact selected release build and latency
+    needs: finalize
+    runs-on: windows-2025
+    timeout-minutes: 360
+    steps:
+      - name: Check out frozen scientific source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
+
+      - name: Download finalized release
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-recovery-finalized-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/finalized
+
+      - name: Restore selected release and final authority
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $authority = Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'finalized') -Directory -Recurse |
+            Where-Object { $_.Name -eq $env:FINAL_AUTHORITY_ID } |
+            Select-Object -First 1
+          $release = Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'finalized') -Directory -Recurse |
+            Where-Object { $_.Name -eq $env:RELEASE_ID } |
+            Select-Object -First 1
+          if ($null -eq $authority -or $null -eq $release) {
+            throw 'Finalized artifact is missing the authority or release bundle.'
+          }
+          New-Item -ItemType Directory -Force -Path 'artifacts/evaluation/eval-v1/final/authorities', 'artifacts/release' | Out-Null
+          Copy-Item -LiteralPath $authority.FullName -Destination 'artifacts/evaluation/eval-v1/final/authorities' -Recurse
+          Copy-Item -LiteralPath $release.FullName -Destination 'artifacts/release' -Recurse
+          if (git status --short --untracked-files=all) {
+            throw 'Restoring ignored selected-release evidence made the worktree dirty.'
+          }
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install chromium
+
+      - name: Create selected-release latency corpus
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $final = "artifacts/evaluation/eval-v1/final/authorities/$env:FINAL_AUTHORITY_ID"
+          npx tsx scripts/create-phase8-latency-corpus.ts `
+            --authority "$final/phase8-final-manifest-authority.json" `
+            --output "$final/selected-latency-corpus.json" `
+            --corpus-id 'phase9-reference-selected-latency-corpus-20260729-d2-actions'
+
+      - name: Build exact selected release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = "artifacts/release/$env:RELEASE_ID/production-release-bundle.json"
+          $env:BHABHI_RELEASE_BUNDLE_PATH = (Resolve-Path $bundle).Path
+          $env:BHABHI_RELEASE_EXPECT_MODE = 'release-selected'
+          npm run build
+
+      - name: Run full selected-release latency contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $final = "artifacts/evaluation/eval-v1/final/authorities/$env:FINAL_AUTHORITY_ID"
+          $bundle = "artifacts/release/$env:RELEASE_ID/production-release-bundle.json"
+          npx tsx scripts/bench-phase8-latency.ts `
+            --evidence-eligible `
+            --run-id $env:SELECTED_LATENCY_ID `
+            --manifest "$final/final-manifest.json" `
+            --corpus "$final/selected-latency-corpus.json" `
+            --config-id $env:CONFIG_ID `
+            --dist dist `
+            --output-parent 'artifacts/release/latency' `
+            --release-bundle $bundle `
+            --power-mode 'GitHub Actions Windows hosted runner' `
+            --power-source 'provider-managed hosted runner' `
+            --background-load 'dedicated standard hosted runner; provider load uncontrolled'
+
+      - name: Upload exact selected release and route evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-recovery-selected-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/release/${{ env.RELEASE_ID }}
+            artifacts/release/latency/${{ env.SELECTED_LATENCY_ID }}
+            artifacts/release/latency/.incomplete-${{ env.SELECTED_LATENCY_ID }}*
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 30
+
+  release-docs:
+    name: Generate verified release documentation
+    needs:
+      - merge-qualification-terminal
+      - qualification-latency
+      - qualify
+      - merge-final-terminal
+      - final-latency
+      - finalize
+      - selected-latency
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    outputs:
+      release_sha: ${{ steps.commit.outputs.release_sha }}
+      release_branch: ${{ steps.commit.outputs.release_branch }}
+    steps:
+      - name: Check out frozen scientific source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
+
+      - name: Download merged qualification terminal
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-recovery-qualification-terminal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/qualification-terminal
+
+      - name: Download passing qualification latency
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-recovery-qualification-latency-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/qualification-latency
+
+      - name: Download merged final terminal
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-recovery-final-terminal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/final-terminal
+
+      - name: Download passing final latency
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-recovery-final-latency-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/final-latency
+
+      - name: Download exact selected release
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-recovery-selected-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/selected-release
+
+      - name: Restore the CI-only documentation writer
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$ORCHESTRATION_REF"
+          mkdir -p work/ci-tools
+          git show "origin/$ORCHESTRATION_REF:.github/scripts/write-release-docs.ts" > work/ci-tools/write-release-docs.ts
+          test -s work/ci-tools/write-release-docs.ts
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Generate documentation from passing immutable evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          qualification_report="$(find "$RUNNER_TEMP/qualification-terminal" -type f -name "$QUALIFICATION_TERMINAL_ID-statistical-report.json" -print -quit)"
+          qualification_latency="$(find "$RUNNER_TEMP/qualification-latency" -type d -name "$QUALIFICATION_LATENCY_ID" -print -quit)"
+          final_report="$(find "$RUNNER_TEMP/final-terminal" -type f -name "$FINAL_TERMINAL_ID-statistical-report.json" -print -quit)"
+          final_latency="$(find "$RUNNER_TEMP/final-latency" -type d -name "$FINAL_LATENCY_ID" -print -quit)"
+          release_bundle="$(find "$RUNNER_TEMP/selected-release" -type f -path "*/$RELEASE_ID/production-release-bundle.json" -print -quit)"
+          selected_latency="$(find "$RUNNER_TEMP/selected-release" -type d -name "$SELECTED_LATENCY_ID" -print -quit)"
+          test -n "$qualification_report"
+          test -n "$qualification_latency"
+          test -n "$final_report"
+          test -n "$final_latency"
+          test -n "$release_bundle"
+          test -n "$selected_latency"
+          npx tsx work/ci-tools/write-release-docs.ts \
+            --qualification-terminal-report "$qualification_report" \
+            --qualification-latency-run "$qualification_latency" \
+            --final-terminal-report "$final_report" \
+            --final-latency-run "$final_latency" \
+            --release-bundle "$release_bundle" \
+            --selected-latency-run "$selected_latency" \
+            --repository "$GITHUB_REPOSITORY" \
+            --actions-run-id "$GITHUB_RUN_ID" \
+            --source-ref "$SOURCE_REF" \
+            --source-commit "$SOURCE_COMMIT" \
+            --qualification-source-run-id "${{ inputs.qualification_run_id }}"
+          npx prettier --write README.md docs/final-report.md docs/progress.md
+          npm run format:check
+
+      - name: Commit documentation on an isolated release branch
+        id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only)
+          printf '%s\n' "${changed[@]}" | sort > "$RUNNER_TEMP/changed.txt"
+          printf '%s\n' README.md docs/final-report.md docs/progress.md | sort > "$RUNNER_TEMP/expected.txt"
+          diff -u "$RUNNER_TEMP/expected.txt" "$RUNNER_TEMP/changed.txt"
+          branch="codex/release-$GITHUB_RUN_ID"
+          git switch -c "$branch"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md docs/final-report.md docs/progress.md
+          git commit -m "docs: attest completed phase 8 and 9 release"
+          git push origin "HEAD:refs/heads/$branch"
+          echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "release_branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release documentation snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase9-recovery-release-docs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            README.md
+            docs/final-report.md
+            docs/progress.md
+          if-no-files-found: error
+          retention-days: 30
+
+  phase9-validation:
+    name: Complete selected-release regression and attestation
+    needs:
+      - release-docs
+      - selected-latency
+    runs-on: windows-2025
+    timeout-minutes: 360
+    steps:
+      - name: Check out documentation-complete candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-docs.outputs.release_sha }}
+          fetch-depth: 0
+
+      - name: Download exact selected release
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-recovery-selected-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/selected-release
+
+      - name: Restore ignored selected release evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'selected-release') -Directory -Recurse |
+            Where-Object { $_.Name -eq $env:RELEASE_ID } |
+            Select-Object -First 1
+          $latency = Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'selected-release') -Directory -Recurse |
+            Where-Object { $_.Name -eq $env:SELECTED_LATENCY_ID } |
+            Select-Object -First 1
+          if ($null -eq $release -or $null -eq $latency) {
+            throw 'Selected release artifact is incomplete.'
+          }
+          New-Item -ItemType Directory -Force -Path 'artifacts/release', 'artifacts/release/latency' | Out-Null
+          Copy-Item -LiteralPath $release.FullName -Destination 'artifacts/release' -Recurse
+          Copy-Item -LiteralPath $latency.FullName -Destination 'artifacts/release/latency' -Recurse
+          if (git status --short --untracked-files=all) {
+            throw 'Restoring ignored release evidence made the worktree dirty.'
+          }
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install chromium
+
+      - name: Run complete Phase 9 release validation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npx tsx scripts/run-phase9-release-validation.ts `
+            --release-bundle "artifacts/release/$env:RELEASE_ID/production-release-bundle.json" `
+            --latency-run "artifacts/release/latency/$env:SELECTED_LATENCY_ID" `
+            --dist dist `
+            --output-parent 'artifacts/release/validation' `
+            --attestation-id $env:VALIDATION_ID
+
+      - name: Upload Phase 9 attestation and command logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase9-recovery-release-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release/validation/${{ env.VALIDATION_ID }}
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+
+  publish-complete:
+    name: Publish documentation-complete master
+    needs:
+      - release-docs
+      - phase9-validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out validated release documentation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-docs.outputs.release_sha }}
+          fetch-depth: 0
+
+      - name: Fast-forward master only after every release gate passes
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ needs.release-docs.outputs.release_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin master
+          current_master="$(git rev-parse origin/master)"
+          test "$current_master" = "$SOURCE_COMMIT"
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          git merge-base --is-ancestor "$SOURCE_COMMIT" "$RELEASE_SHA"
+          git push origin "$RELEASE_SHA:refs/heads/master"
+          {
+            echo '## Release complete'
+            echo
+            echo "Validated commit \`$RELEASE_SHA\` was fast-forwarded to \`master\`."
+            echo "Phase 9 attestation: \`phase9-recovery-release-validation-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT\`."
+          } >> "$GITHUB_STEP_SUMMARY"
