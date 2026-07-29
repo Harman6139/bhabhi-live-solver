@@ -543,6 +543,34 @@ describe("Phase 8 support-regularizer tune evidence", () => {
     expect(stableStringify(first)).toBe(stableStringify(second));
   });
 
+  it("nests conditional scores over applicable rotations only", () => {
+    const { plan } = fixture("smoke");
+    const corpus = syntheticCorpus(plan);
+    const observations = corpus.observations.filter(
+      (observation) =>
+        observation.family !== "conditional" ||
+        observation.rotation === 0 ||
+        observation.scoreStatus === "conditioning-false",
+    );
+    const scored = scorePhase8SupportTuneCandidates({
+      plan,
+      games: corpus.games,
+      observations,
+    });
+
+    expect(scored.integrity.passed).toBe(true);
+    expect(
+      scored.evaluations.every(
+        (evaluation) => evaluation.missingFamilyRotationCells === 0,
+      ),
+    ).toBe(true);
+    expect(
+      scored.evaluations.every((evaluation) =>
+        Number.isFinite(evaluation.familyScores.conditional),
+      ),
+    ).toBe(true);
+  });
+
   it("rejects incomplete clusters, execution failures, and raw-zero feasible truths", async () => {
     const { model, plan } = fixture("smoke");
     const corpus = syntheticCorpus(plan);

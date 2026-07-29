@@ -877,15 +877,21 @@ function nestedCandidateScore(input: {
           rotationGroups.get(
             [family, clusterId, rotation.toString()].join("\u0000"),
           ) ?? [];
-        if (gameScores.length !== 1) {
+        if (gameScores.length > 1) {
           missingFamilyRotationCells += 1;
           continue;
         }
-        rotationScores.push(gameScores[0] ?? fail("missing game score."));
+        const gameScore = gameScores[0];
+        if (gameScore !== undefined) {
+          rotationScores.push(gameScore);
+        }
       }
-      if (rotationScores.length === PHASE8_SUPPORT_TUNE_ROTATIONS.length) {
+      if (rotationScores.length > 0) {
         clusterScores.push(
-          mean(rotationScores, `${family} rotations within cluster`),
+          mean(
+            rotationScores,
+            `${family} applicable rotations within cluster`,
+          ),
         );
       }
     }

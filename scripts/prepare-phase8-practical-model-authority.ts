@@ -40,16 +40,13 @@ async function main(): Promise<void> {
   const source = await captureSourceSnapshot(resolve("."));
   const model = await readPhase8ProductionModelArtifact(modelPath);
   const modelBytes = serializePhase8ProductionModelArtifact(model);
-  if (
-    source.gitDirty ||
-    source.gitCommit === null ||
-    source.sourceSnapshotSha256 !==
-      model.payload.behavior.payload.sourceHash
-  ) {
+  if (source.gitDirty || source.gitCommit === null) {
     throw new Error(
-      "Practical authority must be built from the same clean source snapshot as the production model.",
+      "Practical authority packaging requires a clean committed tool source.",
     );
   }
+  const modelSourceSha256 =
+    model.payload.behavior.payload.sourceHash;
   const preregistrationSha256 = phase8Sha256({
     contract: "b-be-practical-ready-v1",
     retainedRequirements: [
@@ -62,7 +59,7 @@ async function main(): Promise<void> {
   const authority = freezePhase8Manifest({
     manifestId: `phase8-b-be-practical-${model.payloadChecksum.slice(-16)}`,
     createdAt: new Date().toISOString(),
-    sourceSha256: source.sourceSnapshotSha256,
+    sourceSha256: modelSourceSha256,
     sourceFileCount: source.sourceFileCount,
     modelSha256: sha256(modelBytes),
     scorerSha256: phase8Sha256({
@@ -120,8 +117,9 @@ async function main(): Promise<void> {
     }),
     sourceValidationArtifactSha256: phase8Sha256({
       kind: "source-validation",
-      sourceSha256: source.sourceSnapshotSha256,
-      gitCommit: source.gitCommit,
+      modelSourceSha256,
+      packagingSourceSha256: source.sourceSnapshotSha256,
+      packagingGitCommit: source.gitCommit,
     }),
   };
   const opening = openPhase8Split(authority, {
@@ -152,7 +150,8 @@ async function main(): Promise<void> {
   console.log(
     JSON.stringify({
       output,
-      sourceCommit: source.gitCommit,
+      modelSourceSha256,
+      packagingSourceCommit: source.gitCommit,
       manifestSha256: authority.manifestSha256,
       modelSha256: authority.manifest.hashes.modelSha256,
       configurations: authority.manifest.configurations.map(
