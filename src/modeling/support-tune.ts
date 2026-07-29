@@ -1161,13 +1161,49 @@ export function runPhase8SupportTune(input: {
   readonly opening: Phase8SplitOpening;
   readonly plan: Phase8SupportTunePlan;
   readonly behaviorModel: SelectedBehaviorModelArtifact;
+  readonly scheduleSlice?: Readonly<{
+    styleCellId: string;
+    baseIndexStart: number;
+    baseCount: number;
+  }>;
   readonly onProgress?: (progress: Phase8SupportTuneProgress) => void;
 }): Phase8SupportTuneRunResult {
-  const schedule = openedPhase8SupportTuneSchedule(
+  const completeSchedule = openedPhase8SupportTuneSchedule(
     input.tuneAuthority,
     input.opening,
     input.plan,
   );
+  const schedule =
+    input.scheduleSlice === undefined
+      ? completeSchedule
+      : (() => {
+          const { styleCellId, baseIndexStart, baseCount } =
+            input.scheduleSlice;
+          if (
+            !input.plan.styleCellIds.includes(styleCellId) ||
+            !Number.isSafeInteger(baseIndexStart) ||
+            !Number.isSafeInteger(baseCount) ||
+            baseCount < 1 ||
+            baseIndexStart < input.plan.baseIndexStart ||
+            baseIndexStart + baseCount >
+              input.plan.baseIndexStart + input.plan.baseCount
+          ) {
+            fail("support-tune schedule slice is outside the frozen plan.");
+          }
+          const filtered = completeSchedule.filter(
+            (entry) =>
+              entry.styleCellId === styleCellId &&
+              entry.baseIndex >= baseIndexStart &&
+              entry.baseIndex < baseIndexStart + baseCount,
+          );
+          if (
+            filtered.length !==
+            baseCount * PHASE8_SUPPORT_TUNE_ROTATIONS.length
+          ) {
+            fail("support-tune schedule slice has the wrong cardinality.");
+          }
+          return Object.freeze(filtered);
+        })();
   const behaviorVerification = verifySelectedBehaviorModelArtifact(
     input.behaviorModel,
   );
@@ -1318,7 +1354,7 @@ export function runPhase8SupportTune(input: {
   });
   const winner = deterministicCandidateWinner(scored.evaluations);
   let selection: Phase8SupportRegularizerTuneSelection | null = null;
-  if (input.plan.mode === "evidence") {
+  if (input.plan.mode === "evidence" && input.scheduleSlice === undefined) {
     if (
       !scored.integrity.passed ||
       scored.integrity.completeStyleBaseClusters !==
