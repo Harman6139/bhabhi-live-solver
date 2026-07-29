@@ -149,34 +149,58 @@ jobs:
           merge-multiple: false
 
       - name: Deterministically merge and seal production model
-        run: >-
-          npx tsx scripts/merge-phase8-support-tune-shards.ts
-          --input-root "${{ runner.temp }}/support-shards"
-          --behavior-model "${{ steps.fit.outputs.model }}"
-          --support-output outputs/production/support-tune
-          --model-output outputs/production/phase8-production-model.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/production"
+          npx tsx scripts/merge-phase8-support-tune-shards.ts \
+            --input-root "$RUNNER_TEMP/support-shards" \
+            --behavior-model "${{ steps.fit.outputs.model }}" \
+            --support-output "$RUNNER_TEMP/production/support-tune" \
+            --model-output "$RUNNER_TEMP/production/phase8-production-model.json"
+
+      - name: Build practical authority and verified B-BE execution bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          model="$RUNNER_TEMP/production/phase8-production-model.json"
+          authority="$RUNNER_TEMP/production/authority"
+          npx tsx scripts/prepare-phase8-practical-model-authority.ts \
+            --model "$model" \
+            --output "$authority"
+          npx tsx scripts/create-phase8-execution-bundle.ts \
+            --authority "$authority/phase8-manifest-authority.json" \
+            --model "$model" \
+            --config-id p8-b-behavior-balanced-v1 \
+            --output "$authority/b-evaluation-bundle.json"
+          npx tsx scripts/create-phase8-execution-bundle.ts \
+            --authority "$authority/phase8-manifest-authority.json" \
+            --model "$model" \
+            --config-id p8-be-behavior-exact-fallback-v1 \
+            --output "$authority/be-evaluation-bundle.json"
 
       - name: Retain model lineage and checksums
         shell: bash
         run: |
           set -euo pipefail
-          cp "${{ steps.fit.outputs.model }}" outputs/production/selected-behavior-model.json
-          cp "${{ steps.fit.outputs.provenance }}" outputs/production/behavior-fit-provenance.txt
+          target="$RUNNER_TEMP/production"
+          cp "${{ steps.fit.outputs.model }}" "$target/selected-behavior-model.json"
+          cp "${{ steps.fit.outputs.provenance }}" "$target/behavior-fit-provenance.txt"
           printf '%s\n' \
             "fit_run_id=${FIT_RUN_ID}" \
             "support_run_id=${GITHUB_RUN_ID}" \
             "source_commit=${{ steps.fit.outputs.source_sha }}" \
-            > outputs/production/production-provenance.txt
-          find outputs/production -type f ! -name all-files.sha256 -print0 \
+            > "$target/production-provenance.txt"
+          find "$target" -type f ! -name all-files.sha256 -print0 \
             | sort -z \
             | xargs -0 sha256sum \
-            > outputs/production/all-files.sha256
+            > "$target/all-files.sha256"
 
       - name: Upload canonical production model and tune evidence
         uses: actions/upload-artifact@v4
         with:
           name: b-be-production-model-${{ env.FIT_RUN_ID }}
-          path: outputs/production
+          path: ${{ runner.temp }}/production
           if-no-files-found: error
           retention-days: 30
           compression-level: 6
