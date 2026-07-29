@@ -1,0 +1,109 @@
+name: Merge and fit B-BE behavior model
+
+on:
+  workflow_run:
+    workflows: ["Train B-BE behavior shards"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful Train B-BE behavior shards run ID
+        required: true
+        type: string
+      source_sha:
+        description: Exact source commit used by the shard run
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  merge-fit:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SOURCE_RUN_ID: ${{ inputs.source_run_id || github.event.workflow_run.id }}
+      SOURCE_SHA: ${{ inputs.source_sha || github.event.workflow_run.head_sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.event.workflow_run.head_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Download every independently retained shard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh run download "$SOURCE_RUN_ID"
+          --repo "$GITHUB_REPOSITORY"
+          --pattern "behavior-*"
+          --dir inputs
+
+      - name: Require the complete 30-shard set
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find inputs -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 30
+          test "$(find inputs -type f -name manifest.json | wc -l)" -eq 30
+
+      - name: Merge full train and tune corpora
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx tsx scripts/merge-phase8-behavior-dataset-shards.ts \
+            --split train \
+            --input-root inputs \
+            --output outputs/full/train \
+            --run-id "behavior-train-${SOURCE_RUN_ID}" \
+            --expected-commit "$SOURCE_SHA"
+          npx tsx scripts/merge-phase8-behavior-dataset-shards.ts \
+            --split tune \
+            --input-root inputs \
+            --output outputs/full/tune \
+            --run-id "behavior-tune-${SOURCE_RUN_ID}" \
+            --expected-commit "$SOURCE_SHA"
+
+      - name: Fit and tune the shared B-BE behavior model
+        run: >-
+          npm run model:phase8 -- fit
+          --train outputs/full/train
+          --tune outputs/full/tune
+          --output outputs/selected-behavior-model.json
+          --evidence-eligible
+
+      - name: Verify and checksum fitted outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run model:phase8:verify -- outputs/selected-behavior-model.json
+          printf '%s\n' \
+            "source_run_id=${SOURCE_RUN_ID}" \
+            "source_commit=${SOURCE_SHA}" \
+            "fit_run_id=${GITHUB_RUN_ID}" \
+            > outputs/provenance.txt
+          find outputs -type f ! -name all-files.sha256 -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            > outputs/all-files.sha256
+
+      - name: Upload fitted model and merged source corpora
+        uses: actions/upload-artifact@v4
+        with:
+          name: b-be-behavior-model-${{ env.SOURCE_RUN_ID }}
+          path: outputs
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
