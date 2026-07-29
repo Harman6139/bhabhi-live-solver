@@ -1,28 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { cpus, freemem, platform, release, totalmem } from "node:os";
 import { resolve } from "node:path";
-import { Worker } from "node:worker_threads";
 
-import {
-  parseAndRehydratePhase8FinalManifestAuthority,
-  parseAndRehydratePhase8FinalSplitOpening,
-  rehydratePhase8SelectionArtifact,
-  type Phase8SelectionAttestation,
-  type Phase8WriteOnceArtifact,
-} from "../src/evaluation/phase8-final-manifest";
-import {
-  parseAndRehydratePhase8ManifestAuthority,
-  parseAndRehydratePhase8SplitOpening,
-} from "../src/evaluation/phase8-manifest";
 import { createPhase8TerminalArtifactSession } from "../src/evaluation/phase8-terminal-artifacts";
 import { writePhase8TerminalStatisticalReport } from "../src/evaluation/phase8-terminal-report";
+import { runPhase8TerminalMatrix } from "../src/evaluation/phase8-terminal-runner";
 import {
-  createPhase8TerminalAuthorityPlan,
-  runPhase8TerminalMatrix,
-  type Phase8TerminalPlan,
-  type Phase8TerminalScenarioInput,
-  type Phase8TerminalScenarioResult,
-} from "../src/evaluation/phase8-terminal-runner";
+  loadPhase8TerminalPlan,
+  ScenarioWorkerPool,
+} from "./phase8-terminal-runtime";
 
 type Options = Readonly<{
   scope: "qualification" | "final";
@@ -87,150 +73,9 @@ function parseArguments(argv: readonly string[]): Options {
   };
 }
 
-async function selectionArtifact(
-  payloadPath: string,
-  checksumPath: string,
-): Promise<Phase8WriteOnceArtifact<Phase8SelectionAttestation>> {
-  return rehydratePhase8SelectionArtifact({
-    payload: await readFile(resolve(payloadPath), "utf8"),
-    checksumLine: await readFile(resolve(checksumPath), "utf8"),
-  });
-}
-
-async function createPlan(options: Options): Promise<Phase8TerminalPlan> {
-  if (options.scope === "qualification") {
-    const authority = parseAndRehydratePhase8ManifestAuthority(
-      await readFile(resolve(options.authorityPath), "utf8"),
-    );
-    const opening = parseAndRehydratePhase8SplitOpening(
-      authority,
-      await readFile(resolve(options.openingPath), "utf8"),
-    );
-    return createPhase8TerminalAuthorityPlan({
-      runId: options.runId,
-      seedAuthority: { kind: "qualification", authority, opening },
-    });
-  }
-  if (
-    options.qualificationAuthorityPath === null ||
-    options.selectionPath === null ||
-    options.selectionChecksumPath === null
-  ) {
-    throw new Error(
-      "Final scope requires --qualification-authority, --selection, and --selection-checksum.",
-    );
-  }
-  const qualificationAuthority = parseAndRehydratePhase8ManifestAuthority(
-    await readFile(resolve(options.qualificationAuthorityPath), "utf8"),
-  );
-  const selection = await selectionArtifact(
-    options.selectionPath,
-    options.selectionChecksumPath,
-  );
-  const authority = parseAndRehydratePhase8FinalManifestAuthority({
-    payload: await readFile(resolve(options.authorityPath), "utf8"),
-    qualificationAuthority,
-    selectionArtifact: selection,
-  });
-  const opening = parseAndRehydratePhase8FinalSplitOpening(
-    authority,
-    await readFile(resolve(options.openingPath), "utf8"),
-  );
-  return createPhase8TerminalAuthorityPlan({
-    runId: options.runId,
-    seedAuthority: { kind: "final", authority, opening },
-  });
-}
-
-class ScenarioWorkerPool {
-  readonly workers: Worker[];
-  private nextId = 0;
-  private nextWorker = 0;
-  private readonly pending = new Map<
-    number,
-    Readonly<{
-      resolve: (result: Phase8TerminalScenarioResult) => void;
-      reject: (error: Error) => void;
-    }>
-  >();
-
-  constructor(size: number) {
-    this.workers = Array.from(
-      { length: size },
-      () =>
-        new Worker(
-          new URL("./phase8-terminal-worker-bootstrap.mjs", import.meta.url),
-          {
-            execArgv: [],
-          },
-        ),
-    );
-    for (const worker of this.workers) {
-      worker.on(
-        "message",
-        (message: {
-          readonly id: number;
-          readonly ok: boolean;
-          readonly result?: Phase8TerminalScenarioResult;
-          readonly error?: {
-            readonly message?: string;
-            readonly stack?: string;
-          };
-        }) => {
-          const pending = this.pending.get(message.id);
-          if (pending === undefined) {
-            return;
-          }
-          this.pending.delete(message.id);
-          if (message.ok && message.result !== undefined) {
-            pending.resolve(message.result);
-          } else {
-            pending.reject(
-              new Error(
-                message.error?.stack ??
-                  message.error?.message ??
-                  "Terminal worker failed without an error payload.",
-              ),
-            );
-          }
-        },
-      );
-      worker.on("error", (error) => {
-        for (const pending of this.pending.values()) {
-          pending.reject(error);
-        }
-        this.pending.clear();
-      });
-    }
-  }
-
-  execute(
-    scenario: Phase8TerminalScenarioInput,
-  ): Promise<Phase8TerminalScenarioResult> {
-    const worker = this.workers[this.nextWorker];
-    if (worker === undefined) {
-      return Promise.reject(new Error("Terminal worker pool is empty."));
-    }
-    this.nextWorker = (this.nextWorker + 1) % this.workers.length;
-    const id = this.nextId;
-    this.nextId += 1;
-    return new Promise((resolvePromise, rejectPromise) => {
-      this.pending.set(id, {
-        resolve: resolvePromise,
-        reject: rejectPromise,
-      });
-      worker.postMessage({ id, scenario });
-    });
-  }
-
-  async close(): Promise<void> {
-    await Promise.all(this.workers.map((worker) => worker.terminate()));
-  }
-}
-
 async function main(): Promise<void> {
   const options = parseArguments(process.argv.slice(2));
-  const plan = await createPlan(options);
+  const plan = await loadPhase8TerminalPlan(options);
   const serializedModel = await readFile(resolve(options.modelPath), "utf8");
   const session = await createPhase8TerminalArtifactSession({
     rootDirectory: resolve(options.outputRoot),

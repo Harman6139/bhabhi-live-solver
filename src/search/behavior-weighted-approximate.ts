@@ -33,6 +33,7 @@ import {
   validateSolverPolicies,
 } from "./config";
 import { runTerminalRollout } from "./rollout";
+import { compareRootRiskCandidates } from "./root-tie-break";
 import {
   analyzeScenarioSetForTesting,
   prepareTimelineRecommendation,
@@ -58,7 +59,7 @@ import { SearchError } from "./types";
 import { buildWeightedBehaviorHypotheses } from "./weighted-hypotheses";
 
 export const BEHAVIOR_WEIGHTED_APPROXIMATE_ALGORITHM_VERSION =
-  "behavior-weighted-terminal-root-rollout-v1" as const;
+  "behavior-weighted-terminal-root-rollout-v2" as const;
 export const BEHAVIOR_WEIGHTED_DISPATCH_VERSION =
   "behavior-aware-approximate-dispatch-v1" as const;
 
@@ -1129,9 +1130,15 @@ export function analyzeWeightedBehaviorHypothesesForTesting(
       seeds,
     ),
   );
-  const recommended = [...work].sort(
-    (left, right) =>
-      left.risk - right.risk || compareUserActions(left.action, right.action),
+  const publicStateHash = stableHash(input.publicState);
+  const seedIds = solverSeedIds(seeds);
+  const tieBreakContext = {
+    historyHash: input.historyHash,
+    publicStateHash,
+    searchSeedId: seedIds.search,
+  };
+  const recommended = [...work].sort((left, right) =>
+    compareRootRiskCandidates(tieBreakContext, left, right),
   )[0];
   if (recommended === undefined) {
     throw new SearchError(
@@ -1166,7 +1173,6 @@ export function analyzeWeightedBehaviorHypothesesForTesting(
       { completed, expectedCompleted },
     );
   }
-  const publicStateHash = stableHash(input.publicState);
   const configHash = analysisConfigurationHash({
     budget: input.budget,
     userContinuation,
@@ -1198,7 +1204,6 @@ export function analyzeWeightedBehaviorHypothesesForTesting(
       })),
     })),
   });
-  const seedIds = solverSeedIds(seeds);
   const payload: BehaviorWeightedApproximatePayload = {
     schemaVersion: 1,
     algorithmVersion: BEHAVIOR_WEIGHTED_APPROXIMATE_ALGORITHM_VERSION,
@@ -1259,6 +1264,7 @@ export function analyzeWeightedBehaviorHypothesesForTesting(
       "Opponent P2/P3 model identities remain separate static latent variables within each correlated world occurrence.",
       "Weighted occurrence-cluster normal intervals are diagnostic approximations, not exact game-theoretic confidence sets.",
       "One-occurrence uncertainty is reported conservatively as the full feasible range.",
+      "Bit-identical root risks are resolved reproducibly from public history, public state, and the frozen search-seed namespace; hidden truth is never consulted.",
       ...(input.activeEvents === undefined
         ? [
             "Synthetic-state test path: no full event ledger was available for chronology verification.",

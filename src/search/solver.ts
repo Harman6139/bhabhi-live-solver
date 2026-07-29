@@ -32,6 +32,7 @@ import {
   mean,
   pairedBootstrapDifference,
 } from "./statistics";
+import { compareRootRiskCandidates } from "./root-tie-break";
 import {
   SEARCH_ALGORITHM_VERSION,
   SearchError,
@@ -524,9 +525,15 @@ function analyzeScenarioSet(
   const work = actions.map((action) =>
     runCandidateWork(input, action, policies, seeds),
   );
-  const recommended = [...work].sort(
-    (left, right) =>
-      left.risk - right.risk || compareUserActions(left.action, right.action),
+  const publicStateHash = stableHash(input.publicState);
+  const seedIds = solverSeedIds(seeds);
+  const tieBreakContext = {
+    historyHash: input.historyHash,
+    publicStateHash,
+    searchSeedId: seedIds.search,
+  };
+  const recommended = [...work].sort((left, right) =>
+    compareRootRiskCandidates(tieBreakContext, left, right),
   )[0];
   if (recommended === undefined) {
     throw new SearchError(
@@ -562,7 +569,6 @@ function analyzeScenarioSet(
     policies,
     seeds,
   });
-  const publicStateHash = stableHash(input.publicState);
   const analysisId = stableHash({
     schemaVersion: 1,
     algorithmVersion: SEARCH_ALGORITHM_VERSION,
@@ -572,7 +578,6 @@ function analyzeScenarioSet(
     configHash,
     worldSetChecksum: input.belief.worldSetChecksum,
   });
-  const seedIds = solverSeedIds(seeds);
   const outcomeChecksum = stableHash({
     schemaVersion: 1,
     actions: work.map((candidate) => ({
@@ -583,7 +588,7 @@ function analyzeScenarioSet(
   const warnings = [
     "Approximate terminal rollout under frozen baseline continuation policies; not an exact game-theoretic solution.",
     "Approximate-tie intervals are heuristic paired comparisons against the data-selected minimum.",
-    "The search seed is a reserved reproducibility namespace for later tree-search components; Phase 5 root-action ordering is deterministic.",
+    "Bit-identical root risks are resolved reproducibly from public history, public state, and the frozen search-seed namespace; hidden truth is never consulted.",
     ...(input.activeEvents === undefined
       ? [
           "Synthetic-state test path: actor chronology is derived from public rule effects rather than a verified full event ledger.",

@@ -2,7 +2,7 @@ import type { Card } from "../domain/cards";
 import type { OpponentSeat, Seat } from "../domain/seats";
 import type { EscapeGroup, RuleEffect } from "../public/public-state";
 
-export const SEARCH_ALGORITHM_VERSION = "hard-belief-root-rollout-v1" as const;
+export const SEARCH_ALGORITHM_VERSION = "hard-belief-root-rollout-v2" as const;
 
 export const SOLVER_BUDGET_IDS = [
   "instant",

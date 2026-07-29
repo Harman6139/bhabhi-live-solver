@@ -39,6 +39,7 @@ import {
   recommendFromTimeline,
   type TimelineRecommendationRequest,
 } from "../search/solver";
+import { PUBLIC_HISTORY_ROOT_TIE_BREAK_VERSION } from "../search/root-tie-break";
 import type {
   ExactEndgameIneligibleResult,
   ExactEndgameSolvedResult,
@@ -49,6 +50,7 @@ import type {
   SolverBudget,
   UserAction,
 } from "../search/types";
+import { SEARCH_ALGORITHM_VERSION } from "../search/types";
 import { buildWeightedBehaviorHypotheses } from "../search/weighted-hypotheses";
 import {
   PHASE7_EXACT_SCREEN_CONFIG,
@@ -310,6 +312,11 @@ function implementationFor(
   }
   return {
     terminalRunnerVersion: PHASE8_TERMINAL_RUNNER_VERSION,
+    hardOnlySearchAlgorithmVersion: SEARCH_ALGORITHM_VERSION,
+    behaviorWeightedSearchAlgorithmVersion: isBehaviorRole(configId)
+      ? BEHAVIOR_WEIGHTED_APPROXIMATE_ALGORITHM_VERSION
+      : null,
+    rootTieBreakVersion: PUBLIC_HISTORY_ROOT_TIE_BREAK_VERSION,
     routingContract: PHASE8_TERMINAL_ROUTING_CONTRACTS[configId],
     phase5ReferenceConfigHash: PHASE8_TERMINAL_PHASE5_REFERENCE_CONFIG_HASH,
     continuationPolicyHash: PHASE8_TERMINAL_CONTINUATION_POLICY_HASH,

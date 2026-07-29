@@ -1182,12 +1182,54 @@ export async function runPhase8TerminalMatrix(input: {
   readonly plan: Phase8TerminalPlan;
   readonly serializedProductionModel: string;
   readonly sink: Phase8TerminalRunSink;
+  /**
+   * Optional canonical subset for independently durable compute shards. The
+   * authority plan remains the complete frozen matrix; only execution is
+   * partitioned.
+   */
+  readonly baseIndices?: readonly number[];
   readonly onProgress?: (progress: Phase8TerminalProgress) => void;
   readonly concurrency?: number;
   readonly scenarioExecutor?: (
     scenario: Phase8TerminalScenarioInput,
   ) => Promise<Phase8TerminalScenarioResult>;
 }): Promise<Phase8TerminalRunResult> {
+  const baseIndices =
+    input.baseIndices === undefined
+      ? Array.from(
+          {
+            length: input.plan.baseCount - input.plan.baseIndexStart,
+          },
+          (_, index) => input.plan.baseIndexStart + index,
+        )
+      : [...input.baseIndices];
+  if (baseIndices.length === 0) {
+    throw new RangeError(
+      "Terminal matrix base-index subset must not be empty.",
+    );
+  }
+  const canonicalBaseIndices = [...baseIndices].sort(
+    (left, right) => left - right,
+  );
+  if (
+    new Set(canonicalBaseIndices).size !== canonicalBaseIndices.length ||
+    canonicalBaseIndices.some(
+      (baseIndex, index) =>
+        baseIndex !== baseIndices[index] ||
+        !Number.isSafeInteger(baseIndex) ||
+        baseIndex < input.plan.baseIndexStart ||
+        baseIndex >= input.plan.baseCount,
+    )
+  ) {
+    throw new RangeError(
+      "Terminal matrix base indices must be unique, ascending, safe integers inside the frozen plan.",
+    );
+  }
+  const expectedGames =
+    canonicalBaseIndices.length *
+    input.plan.styleCells.length *
+    input.plan.rotations.length *
+    input.plan.configurations.length;
   const preflight = preflightPhase8TerminalConfigurations({
     configurations: input.plan.configurations,
     manifestModelSha256: input.plan.hashes.modelSha256,
@@ -1209,7 +1251,7 @@ export async function runPhase8TerminalMatrix(input: {
       attemptedGames: 0,
       completedGames: 0,
       failedGames: 0,
-      expectedGames: input.plan.expectedGames,
+      expectedGames,
     });
   }
 
@@ -1227,11 +1269,7 @@ export async function runPhase8TerminalMatrix(input: {
     );
   }
   const scenarios: Phase8TerminalScenarioInput[] = [];
-  for (
-    let baseIndex = input.plan.baseIndexStart;
-    baseIndex < input.plan.baseCount;
-    baseIndex += 1
-  ) {
+  for (const baseIndex of canonicalBaseIndices) {
     for (const styleCell of input.plan.styleCells) {
       for (const rotation of input.plan.rotations) {
         // No seed is derived before the complete executable preflight passes.
@@ -1271,41 +1309,51 @@ export async function runPhase8TerminalMatrix(input: {
       scenario: Phase8TerminalScenarioInput,
     ): Promise<Phase8TerminalScenarioResult> =>
       Promise.resolve(runPhase8TerminalScenario(scenario)));
-  for (let offset = 0; offset < scenarios.length; offset += concurrency) {
-    const batch = scenarios.slice(offset, offset + concurrency);
-    const results = await Promise.all(
-      batch.map((scenario) => execute(scenario)),
-    );
-    for (let index = 0; index < results.length; index += 1) {
-      const result = results[index];
-      const scenario = batch[index];
-      if (result === undefined || scenario === undefined) {
-        throw new Error(
-          "Terminal scenario executor omitted an ordered result.",
-        );
+  const results: (Phase8TerminalScenarioResult | undefined)[] = Array.from({
+    length: scenarios.length,
+  });
+  let nextScenarioIndex = 0;
+  const workerLoops = Array.from(
+    { length: Math.min(concurrency, scenarios.length) },
+    async () => {
+      while (nextScenarioIndex < scenarios.length) {
+        const scenarioIndex = nextScenarioIndex;
+        nextScenarioIndex += 1;
+        const scenario = scenarios[scenarioIndex];
+        if (scenario === undefined) {
+          throw new Error("Terminal scenario queue omitted an input.");
+        }
+        const result = await execute(scenario);
+        results[scenarioIndex] = result;
+        attemptedGames += 1;
+        if (result.game === null) {
+          failedGames += 1;
+        } else {
+          completedGames += 1;
+        }
+        input.onProgress?.({
+          attemptedGames,
+          expectedGames,
+          completedGames,
+          failedGames,
+          current: {
+            configId: scenario.descriptor.configId,
+            styleCellId: scenario.styleCell.id,
+            baseIndex: scenario.baseIndex,
+            rotation: scenario.rotation,
+          },
+        });
       }
-      attemptedGames += 1;
-      if (result.game === null) {
-        failedGames += 1;
-      } else {
-        completedGames += 1;
-      }
-      await input.sink.writeScenario(result);
-      input.onProgress?.({
-        attemptedGames,
-        expectedGames: input.plan.expectedGames,
-        completedGames,
-        failedGames,
-        current: {
-          configId: scenario.descriptor.configId,
-          styleCellId: scenario.styleCell.id,
-          baseIndex: scenario.baseIndex,
-          rotation: scenario.rotation,
-        },
-      });
+    },
+  );
+  await Promise.all(workerLoops);
+  for (const result of results) {
+    if (result === undefined) {
+      throw new Error("Terminal scenario executor omitted an ordered result.");
     }
+    await input.sink.writeScenario(result);
   }
-  if (attemptedGames !== input.plan.expectedGames) {
+  if (attemptedGames !== expectedGames) {
     throw new Error(
       "Phase 8 terminal runner attempted a cardinality different from its frozen plan.",
     );
@@ -1316,7 +1364,7 @@ export async function runPhase8TerminalMatrix(input: {
     attemptedGames,
     completedGames,
     failedGames,
-    expectedGames: input.plan.expectedGames,
+    expectedGames,
   });
 }
 

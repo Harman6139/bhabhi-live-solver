@@ -59,6 +59,7 @@
     "eval:phase8:create-corpus": "tsx scripts/create-phase8-latency-corpus.ts",
     "eval:phase8:create-bundle": "tsx scripts/create-phase8-execution-bundle.ts",
     "eval:phase8:terminal": "tsx scripts/run-phase8-terminal.ts",
+    "eval:phase8:terminal:shard": "tsx scripts/run-phase8-terminal-shard.ts",
     "eval:phase8:qualify-reference": "tsx scripts/qualify-phase8-reference.ts",
     "eval:phase8:finalize-reference": "tsx scripts/finalize-phase8-reference.ts",
     "eval:phase8:terminal:verify": "tsx scripts/verify-phase8-terminal.ts",

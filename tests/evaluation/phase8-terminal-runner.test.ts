@@ -8,6 +8,7 @@ import {
   createPhase8HardOnlyModel,
   serializePhase8HardOnlyModel,
 } from "../../src/modeling/hard-only-model";
+import { stableHash } from "../../src/events/stable-hash";
 import {
   parsePhase8TerminalProductionModel,
   preflightPhase8TerminalConfigurations,
@@ -20,6 +21,8 @@ import {
   derivePhase8TerminalScenarioSeeds,
   runPhase8TerminalMatrix,
   runPhase8TerminalScenario,
+  type Phase8TerminalScenarioInput,
+  type Phase8TerminalScenarioResult,
 } from "../../src/evaluation/phase8-terminal-runner";
 import { createSeededDeal } from "../../src/simulator/game";
 import {
@@ -57,6 +60,102 @@ function developmentPlan(input: {
 }
 
 describe("Phase 8 terminal development and seed protocol", () => {
+  it("keeps workers busy past a slow scenario while preserving a canonical base shard", async () => {
+    const { model, plan } = developmentPlan({ baseCount: 2 });
+    const sink = createInMemoryPhase8TerminalSink();
+    let started = 0;
+    let releaseSlow: (() => void) | undefined;
+    let reportFifth: (() => void) | undefined;
+    const slowGate = new Promise<void>((resolvePromise) => {
+      releaseSlow = resolvePromise;
+    });
+    const fifthStarted = new Promise<void>((resolvePromise) => {
+      reportFifth = resolvePromise;
+    });
+    const syntheticResult = (
+      scenario: Phase8TerminalScenarioInput,
+    ): Phase8TerminalScenarioResult => ({
+      game: null,
+      truth: null,
+      failure: null,
+      decisions: [],
+      latencies: [],
+      summaryInput: {
+        schemaVersion: 1,
+        recordType: "phase8-terminal-summary-input",
+        protocolId: "eval-v1",
+        runnerVersion: plan.runnerVersion,
+        runId: plan.runId,
+        split: plan.split,
+        configId: scenario.descriptor.configId,
+        styleCellId: scenario.styleCell.id,
+        baseIndex: scenario.baseIndex,
+        rotation: scenario.rotation,
+        replicate: 0,
+        clusterId: `${plan.split}/${scenario.baseIndex.toString()}`,
+        pairingKey: `${scenario.styleCell.id}/${scenario.rotation.toString()}/0`,
+        gameId: stableHash({
+          fixture: "work-conserving-runner",
+          baseIndex: scenario.baseIndex,
+          styleCellId: scenario.styleCell.id,
+          rotation: scenario.rotation,
+        }),
+        status: "failed",
+        userBhabhi: null,
+        userFinishingPosition: null,
+        eventCount: 0,
+        decisionCount: 0,
+        solverDecisionCount: 0,
+        exactUses: 0,
+        exactRefusals: 0,
+        behaviorUses: 0,
+        behaviorRefusals: 0,
+        terminalOutcomeHash: null,
+        deterministicInputSha256: "0".repeat(64),
+      },
+    });
+    const run = runPhase8TerminalMatrix({
+      plan,
+      baseIndices: [1],
+      serializedProductionModel: model.serialized,
+      sink,
+      concurrency: 4,
+      scenarioExecutor: async (scenario) => {
+        const ordinal = started;
+        started += 1;
+        if (started === 5) {
+          reportFifth?.();
+        }
+        if (ordinal === 0) {
+          await slowGate;
+        }
+        return syntheticResult(scenario);
+      },
+    });
+    try {
+      await Promise.race([
+        fifthStarted,
+        new Promise<never>((_, rejectPromise) => {
+          setTimeout(
+            () =>
+              rejectPromise(
+                new Error("A completed worker did not receive the fifth task."),
+              ),
+            1_000,
+          );
+        }),
+      ]);
+    } finally {
+      releaseSlow?.();
+    }
+    const result = await run;
+
+    expect(result.expectedGames).toBe(51);
+    expect(result.attemptedGames).toBe(51);
+    expect(sink.seeds).toHaveLength(51);
+    expect(sink.seeds.every((record) => record.baseIndex === 1)).toBe(true);
+  });
+
   it("keeps public solver chance style-neutral and environment chance style-dependent", () => {
     const { plan } = developmentPlan({});
     const first = derivePhase8TerminalScenarioSeeds(plan, {

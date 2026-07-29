@@ -733,6 +733,29 @@ hardware override      explicit post-opening user direction permits hosted
                        runner evidence instead of target-laptop evidence
 ```
 
+Phase 8 terminal failure recovery and compute offload:
+
+```text
+superseded Actions run  30409430508
+attempted/complete      3,264 / 3,262
+visible failures        2 EVENT_CAP outcomes at the frozen 4,096-event cap
+artifact preservation   phase8-qualification-terminal-30409430508 retained
+root cause              exact-risk canonical tie lock in two recurrent games;
+                        fixed four-scenario batches amplified the wall time
+scientific correction   public-history/state/search-seed exact-tie ordering;
+                        no risk, budget, threshold, seed, sample, bootstrap,
+                        truth-firewall, or release-rule reduction
+compute architecture    39 modulo-base terminal shards x 4 worker threads,
+                        fail-fast disabled, plus one browser-latency runner
+durability              independent 14-day artifacts with raw streams,
+                        authority inputs, coordinate/plan digests, counts,
+                        per-file SHA-256 checksums, and shard digest
+merge policy            deterministic completeness verification is deferred;
+                        successful shards are never invalidated by another
+                        shard or downstream merge failure
+change control          ADR 0011
+```
+
 ## Open risks
 
 - Household rules vary materially around taking another hand, zero cards with
@@ -755,9 +778,11 @@ hardware override      explicit post-opening user direction permits hosted
 
 ## Next step
 
-Commit the clean source candidate, run the 12-command frozen source validation,
-and only then open qualification. Execute R-only qualification terminal and
-browser latency, selection/final freeze, fresh final terminal and latency,
-final attestation, selected-release build/latency, documentation finalization,
-and the create-exclusive Phase 9 release-validation attestation. Do not modify
-scientific source after qualification opens.
+Commit the clean v2 source candidate, run the 12-command frozen source
+validation, and only then open qualification. Execute R-only qualification
+terminal as independently durable shards alongside browser latency. After all
+shards exist, verify checksums and exact coordinate coverage, merge in frozen
+canonical order, and continue with selection/final freeze, fresh final terminal
+and latency, final attestation, selected-release build/latency, documentation
+finalization, and the create-exclusive Phase 9 release-validation attestation.
+Do not modify scientific source after qualification opens.
