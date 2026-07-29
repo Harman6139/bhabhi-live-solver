@@ -1,0 +1,88 @@
+name: Train B-BE behavior shards
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: train-b-be-behavior-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  dataset:
+    name: ${{ matrix.split }}-${{ matrix.style }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 30
+      matrix:
+        split: [train, tune]
+        style:
+          - c01
+          - c02
+          - c03
+          - c04
+          - c05
+          - c06
+          - c07
+          - c08
+          - c09
+          - c10
+          - c11
+          - c12
+          - c13
+          - c14
+          - c15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Generate public behavior-fit shard
+        run: >-
+          npm run model:phase8 -- dataset
+          --split "${{ matrix.split }}"
+          --run-id "${{ matrix.split }}-${{ matrix.style }}"
+          --artifact-root outputs/behavior-shards
+          --base-count 64
+          --style-cells "${{ matrix.style }}"
+          --rotations 0,1,2
+
+      - name: Record shard identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact="outputs/behavior-shards/${{ matrix.split }}/${{ matrix.split }}-${{ matrix.style }}"
+          envelope="outputs/upload/${{ matrix.split }}-${{ matrix.style }}"
+          mkdir -p "$envelope"
+          cp -a "$artifact" "$envelope/dataset"
+          sha256sum "$envelope/dataset"/* | sort > "$envelope/shard-files.sha256"
+          printf '%s\n' \
+            "source_commit=${GITHUB_SHA}" \
+            "workflow_run_id=${GITHUB_RUN_ID}" \
+            "workflow_run_attempt=${GITHUB_RUN_ATTEMPT}" \
+            "split=${{ matrix.split }}" \
+            "style_cell=${{ matrix.style }}" \
+            "base_index_start=0" \
+            "base_count=64" \
+            "rotations=0,1,2" \
+            > "$envelope/shard-identity.txt"
+
+      - name: Upload independently durable shard
+        uses: actions/upload-artifact@v4
+        with:
+          name: behavior-${{ matrix.split }}-${{ matrix.style }}
+          path: outputs/upload/${{ matrix.split }}-${{ matrix.style }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
