@@ -1,0 +1,122 @@
+name: Build unvalidated R play preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Isolated preview source branch
+        required: true
+        type: string
+        default: codex/play-preview
+      qualification_run_id:
+        description: Run containing the qualification-bound evaluation bundle
+        required: true
+        type: string
+        default: "30422123375"
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: bhabhi-r-play-preview
+  cancel-in-progress: true
+
+jobs:
+  build-preview:
+    name: Build and smoke-test R play preview
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out isolated preview source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+
+      - name: Download qualification-bound evaluation bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-sharded-prepared-${{ inputs.qualification_run_id }}
+          path: ${{ runner.temp }}/prepared
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.qualification_run_id }}
+
+      - name: Bind explicit evaluation-preview mode
+        id: binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="$(find "$RUNNER_TEMP/prepared" -type f -name evaluation-bundle.json -print -quit)"
+          test -n "$bundle"
+          mkdir -p work/play-preview
+          cp "$bundle" work/play-preview/evaluation-bundle.json
+          bundle_sha="$(sha256sum work/play-preview/evaluation-bundle.json | cut -d' ' -f1)"
+          echo "BHABHI_RELEASE_BUNDLE_PATH=$GITHUB_WORKSPACE/work/play-preview/evaluation-bundle.json" >> "$GITHUB_ENV"
+          echo "BHABHI_RELEASE_EXPECT_MODE=evaluation-only" >> "$GITHUB_ENV"
+          echo "VITE_BHABHI_EVALUATION_PREVIEW=true" >> "$GITHUB_ENV"
+          echo "bundle_sha=$bundle_sha" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --short --untracked-files=all)"
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Typecheck and build preview
+        run: |
+          npm run typecheck
+          npm run build
+
+      - name: Install Chromium
+        run: npx playwright install chromium
+
+      - name: Prove the preview publishes a recommendation
+        run: >-
+          npx playwright test tests/e2e/evaluation-preview.spec.ts
+          --project desktop-chromium
+
+      - name: Package standalone local artifact
+        shell: bash
+        env:
+          BUNDLE_SHA: ${{ steps.binding.outputs.bundle_sha }}
+        run: |
+          set -euo pipefail
+          target="work/play-preview-artifact"
+          mkdir -p "$target"
+          cp -a dist "$target/"
+          cp PLAY-PREVIEW.md "$target/"
+          cp scripts/serve-play-preview.mjs "$target/"
+          source_sha="$(git rev-parse HEAD)"
+          cat > "$target/preview-manifest.json" <<EOF
+          {
+            "schemaVersion": 1,
+            "mode": "unvalidated-evaluation-preview",
+            "solverConfigId": "p8-r-hard-balanced-v1",
+            "sourceCommit": "$source_sha",
+            "qualificationSourceRunId": "${{ inputs.qualification_run_id }}",
+            "evaluationBundleSha256": "$BUNDLE_SHA",
+            "actionsRunId": "$GITHUB_RUN_ID",
+            "actionsRunAttempt": "$GITHUB_RUN_ATTEMPT"
+          }
+          EOF
+          (
+            cd "$target"
+            find . -type f ! -name checksums.sha256 -print0 |
+              sort -z |
+              xargs -0 sha256sum > checksums.sha256
+          )
+
+      - name: Upload playable preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: bhabhi-r-play-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: work/play-preview-artifact
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
