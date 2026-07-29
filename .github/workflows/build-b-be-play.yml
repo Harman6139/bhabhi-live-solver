@@ -2,7 +2,9 @@ name: Build playable B and BE engines
 
 on:
   workflow_run:
-    workflows: ["Tune support and build B-BE production model"]
+    workflows:
+      - Tune support and build B-BE production model
+      - Recover B-BE production model from durable support shards
     types: [completed]
   workflow_dispatch:
     inputs:
