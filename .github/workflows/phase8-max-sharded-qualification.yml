@@ -17,10 +17,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SOURCE_REF: phase8-source-c1d397e
-  QUALIFICATION_AUTHORITY_ID: phase8-reference-qualification-20260729-c
-  QUALIFICATION_TERMINAL_ID: phase8-reference-qualification-terminal-20260729-c-sharded
-  QUALIFICATION_LATENCY_ID: phase8-reference-qualification-latency-20260729-c-actions
+  SOURCE_REF: phase8-source-b82e68a
+  QUALIFICATION_AUTHORITY_ID: phase8-reference-qualification-20260729-d
+  QUALIFICATION_TERMINAL_ID: phase8-reference-qualification-terminal-20260729-d-sharded
+  QUALIFICATION_LATENCY_ID: phase8-reference-qualification-latency-20260729-d-actions
   CONFIG_ID: p8-r-hard-balanced-v1
   SHARD_COUNT: "39"
   CI_LOG_DIR: artifacts/ci-logs
@@ -78,7 +78,7 @@ jobs:
           npx tsx scripts/create-phase8-latency-corpus.ts \
             --authority "$qa/phase8-manifest-authority.json" \
             --output "$qa/latency-corpus.json" \
-            --corpus-id phase8-reference-qualification-latency-corpus-20260729-c
+            --corpus-id phase8-reference-qualification-latency-corpus-20260729-d
           npx tsx scripts/create-phase8-execution-bundle.ts \
             --authority "$qa/phase8-manifest-authority.json" \
             --model "$qa/model-not-applicable.json" \
