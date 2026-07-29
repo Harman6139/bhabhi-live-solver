@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { GameTimeline } from "../events/timeline";
 import {
+  loadEmbeddedEvaluationProductionRelease,
   loadEmbeddedLiveProductionBinding,
   type ProductionAnalysis,
   type ProductionAnalysisBinding,
@@ -11,10 +12,25 @@ import {
   AnalysisWorkerClient,
   createAnalysisWorkerRequest,
   createBrowserAnalysisWorker,
+  createBrowserEvaluationAnalysisWorker,
   type AnalysisCancellationReason,
   type AnalysisWorkerFactory,
 } from "../worker";
 import type { AnalysisIncident } from "./DiagnosticsPanel";
+
+const EVALUATION_PREVIEW_ENABLED =
+  import.meta.env.VITE_BHABHI_EVALUATION_PREVIEW === "true";
+
+async function loadDefaultBinding(): Promise<ProductionAnalysisBinding> {
+  if (EVALUATION_PREVIEW_ENABLED) {
+    return (await loadEmbeddedEvaluationProductionRelease()).binding;
+  }
+  return loadEmbeddedLiveProductionBinding();
+}
+
+const DEFAULT_WORKER_FACTORY: AnalysisWorkerFactory = EVALUATION_PREVIEW_ENABLED
+  ? createBrowserEvaluationAnalysisWorker
+  : createBrowserAnalysisWorker;
 
 export type LiveAnalysisStatus =
   | "loading-release"
@@ -77,10 +93,9 @@ export function useLiveAnalysis(input: {
   const clientRef = useRef<AnalysisWorkerClient | null>(null);
   const generationRef = useRef(0);
   const requestOrdinalRef = useRef(0);
-  const bindingLoader =
-    input.dependencies?.loadBinding ?? loadEmbeddedLiveProductionBinding;
+  const bindingLoader = input.dependencies?.loadBinding ?? loadDefaultBinding;
   const workerFactory =
-    input.dependencies?.workerFactory ?? createBrowserAnalysisWorker;
+    input.dependencies?.workerFactory ?? DEFAULT_WORKER_FACTORY;
 
   useEffect(() => {
     const client = new AnalysisWorkerClient(workerFactory);

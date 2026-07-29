@@ -153,6 +153,8 @@ export function TrackerScreen({
   const state = replay.state;
   const [selectedBudget, setSelectedBudget] =
     useState<SolverBudgetId>("balanced");
+  const evaluationPreview =
+    import.meta.env.VITE_BHABHI_EVALUATION_PREVIEW === "true";
   const liveAnalysis = useLiveAnalysis({
     timeline,
     sessionEpoch,
@@ -504,6 +506,14 @@ export function TrackerScreen({
           </button>
         </div>
       </header>
+
+      {evaluationPreview ? (
+        <aside className="boot-warning" role="status">
+          <strong>Unvalidated evaluation preview.</strong> Recommendations use
+          the frozen qualification-bound hard-only engine, but final release and
+          Phase 9 attestations are not part of this build.
+        </aside>
+      ) : null}
 
       <section className="player-grid" aria-label="Player state">
         {(["user", "p2", "p3"] as const).map((seat) => (
