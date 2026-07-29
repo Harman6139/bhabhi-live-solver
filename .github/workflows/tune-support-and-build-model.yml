@@ -1,0 +1,182 @@
+name: Tune support and build B-BE production model
+
+on:
+  workflow_run:
+    workflows: ["Merge and fit B-BE behavior model"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      fit_run_id:
+        description: Successful Merge and fit B-BE behavior model run ID
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  support-shard:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    name: ${{ matrix.style }}-b${{ matrix.base_index_start }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 30
+      matrix:
+        base_index_start: [0, 32]
+        style:
+          - c01_random__random
+          - c02_always-high__always-high
+          - c03_always-low__always-low
+          - c04_shortest-suit__shortest-suit
+          - c05_early-high-shedder__early-high-shedder
+          - c06_power-avoider__power-avoider
+          - c07_documented-basic__documented-basic
+          - c08_always-high__always-low
+          - c09_always-low__always-high
+          - c10_shortest-suit__early-high-shedder
+          - c11_early-high-shedder__shortest-suit
+          - c12_power-avoider__documented-basic
+          - c13_documented-basic__power-avoider
+          - c14_random__documented-basic
+          - c15_documented-basic__random
+    env:
+      FIT_RUN_ID: ${{ inputs.fit_run_id || github.event.workflow_run.id }}
+
+    steps:
+      - name: Download fitted behavior model and identify source
+        id: fit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/fit"
+          gh run download "$FIT_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "b-be-behavior-model-*" \
+            --dir "$RUNNER_TEMP/fit"
+          provenance="$(find "$RUNNER_TEMP/fit" -type f -name provenance.txt -print -quit)"
+          model="$(find "$RUNNER_TEMP/fit" -type f -name selected-behavior-model.json -print -quit)"
+          test -n "$provenance"
+          test -n "$model"
+          source_sha="$(sed -n 's/^source_commit=//p' "$provenance")"
+          test "${#source_sha}" -eq 40
+          printf 'source_sha=%s\nmodel=%s\n' "$source_sha" "$model" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.fit.outputs.source_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run one complete rotation-cluster shard
+        run: >-
+          npx tsx scripts/run-phase8-support-tune-shard.ts
+          --behavior-model "${{ steps.fit.outputs.model }}"
+          --output outputs/support-shard
+          --run-id "support-tune-${FIT_RUN_ID}"
+          --style-cell "${{ matrix.style }}"
+          --base-index-start "${{ matrix.base_index_start }}"
+          --base-count 32
+
+      - name: Upload independently durable support shard
+        uses: actions/upload-artifact@v4
+        with:
+          name: support-${{ matrix.style }}-b${{ matrix.base_index_start }}
+          path: outputs/support-shard
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+
+  merge-model:
+    name: Merge support evidence and seal production model
+    needs: support-shard
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      FIT_RUN_ID: ${{ inputs.fit_run_id || github.event.workflow_run.id }}
+
+    steps:
+      - name: Download fitted behavior model and identify source
+        id: fit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/fit"
+          gh run download "$FIT_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "b-be-behavior-model-*" \
+            --dir "$RUNNER_TEMP/fit"
+          provenance="$(find "$RUNNER_TEMP/fit" -type f -name provenance.txt -print -quit)"
+          model="$(find "$RUNNER_TEMP/fit" -type f -name selected-behavior-model.json -print -quit)"
+          test -n "$provenance"
+          test -n "$model"
+          source_sha="$(sed -n 's/^source_commit=//p' "$provenance")"
+          test "${#source_sha}" -eq 40
+          printf 'source_sha=%s\nmodel=%s\nprovenance=%s\n' \
+            "$source_sha" "$model" "$provenance" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.fit.outputs.source_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Download all support shards from this run
+        uses: actions/download-artifact@v4
+        with:
+          pattern: support-*
+          path: ${{ runner.temp }}/support-shards
+          merge-multiple: false
+
+      - name: Deterministically merge and seal production model
+        run: >-
+          npx tsx scripts/merge-phase8-support-tune-shards.ts
+          --input-root "${{ runner.temp }}/support-shards"
+          --behavior-model "${{ steps.fit.outputs.model }}"
+          --support-output outputs/production/support-tune
+          --model-output outputs/production/phase8-production-model.json
+
+      - name: Retain model lineage and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "${{ steps.fit.outputs.model }}" outputs/production/selected-behavior-model.json
+          cp "${{ steps.fit.outputs.provenance }}" outputs/production/behavior-fit-provenance.txt
+          printf '%s\n' \
+            "fit_run_id=${FIT_RUN_ID}" \
+            "support_run_id=${GITHUB_RUN_ID}" \
+            "source_commit=${{ steps.fit.outputs.source_sha }}" \
+            > outputs/production/production-provenance.txt
+          find outputs/production -type f ! -name all-files.sha256 -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            > outputs/production/all-files.sha256
+
+      - name: Upload canonical production model and tune evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: b-be-production-model-${{ env.FIT_RUN_ID }}
+          path: outputs/production
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
