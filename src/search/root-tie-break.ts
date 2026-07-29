@@ -1,3 +1,4 @@
+import { rankValue, suitOf } from "../domain/cards";
 import { stableHash } from "../events/stable-hash";
 import { compareUserActions } from "./actions";
 import type { UserAction } from "./types";
@@ -44,6 +45,17 @@ export function compareRootRiskCandidates(
   const riskDifference = left.risk - right.risk;
   if (riskDifference !== 0) {
     return riskDifference;
+  }
+  if (
+    left.action.kind === "play-card" &&
+    right.action.kind === "play-card" &&
+    suitOf(left.action.card) === suitOf(right.action.card)
+  ) {
+    const highCardFirst =
+      rankValue(right.action.card) - rankValue(left.action.card);
+    if (highCardFirst !== 0) {
+      return highCardFirst;
+    }
   }
   const tieDifference = rootTieBreakKey(context, left.actionKey).localeCompare(
     rootTieBreakKey(context, right.actionKey),

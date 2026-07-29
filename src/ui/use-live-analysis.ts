@@ -190,14 +190,11 @@ export function useLiveAnalysis(input: {
       setState((current) => ({
         status: "analyzing",
         analysis: null,
-        refining: input.selectedBudget !== "instant",
-        message: "Computing an Instant recommendation…",
+        refining: false,
+        message: "Running the strongest local search for this move…",
         lastIncident: current.lastIncident,
       }));
-      const budgets: readonly SolverBudgetId[] =
-        input.selectedBudget === "instant"
-          ? ["instant"]
-          : ["instant", input.selectedBudget];
+      const budgets: readonly SolverBudgetId[] = [input.selectedBudget];
       let published: ProductionAnalysis | null = null;
       for (let index = 0; index < budgets.length; index += 1) {
         const budgetId = budgets[index];

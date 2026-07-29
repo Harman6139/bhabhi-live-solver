@@ -12,8 +12,8 @@ import {
   loadGameTimeline,
   saveGameTimeline,
 } from "../persistence/game-store";
+import { PlayScreen } from "./PlayScreen";
 import { SetupScreen } from "./SetupScreen";
-import { TrackerScreen } from "./TrackerScreen";
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -222,7 +222,7 @@ export function App() {
       {timeline === null ? (
         <SetupScreen onCreate={createGame} onImport={importGame} />
       ) : (
-        <TrackerScreen
+        <PlayScreen
           timeline={timeline}
           sessionEpoch={activeSessionEpoch}
           saveState={saveState}
