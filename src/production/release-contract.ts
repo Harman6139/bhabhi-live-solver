@@ -12,6 +12,9 @@ import {
   type Phase8ProductionModelArtifact,
   type Phase8ProductionModelConfig,
 } from "../modeling/production-model";
+import { BEHAVIOR_WEIGHTED_APPROXIMATE_ALGORITHM_VERSION } from "../search/behavior-weighted-approximate";
+import { PUBLIC_HISTORY_ROOT_TIE_BREAK_VERSION } from "../search/root-tie-break";
+import { SEARCH_ALGORITHM_VERSION } from "../search/types";
 import {
   PRODUCTION_ROLE_COMPONENTS,
   PRODUCTION_ROLE_FALLBACKS,
@@ -108,6 +111,11 @@ export const UNSELECTED_PRODUCTION_RELEASE_BUNDLE: ProductionReleaseBundle =
 const descriptorImplementationSchema = z
   .object({
     terminalRunnerVersion: z.literal("phase8-terminal-matrix-runner-v1"),
+    hardOnlySearchAlgorithmVersion: z.literal(SEARCH_ALGORITHM_VERSION),
+    behaviorWeightedSearchAlgorithmVersion: z
+      .literal(BEHAVIOR_WEIGHTED_APPROXIMATE_ALGORITHM_VERSION)
+      .nullable(),
+    rootTieBreakVersion: z.literal(PUBLIC_HISTORY_ROOT_TIE_BREAK_VERSION),
     routingContract: z.enum([
       "direct-phase5-hard-only",
       "exact-hard-then-byte-identical-r",

@@ -196,7 +196,7 @@ describe("solver seed normalization and configuration hashes", () => {
       belief: seeds.belief,
     };
 
-    expect(hash).toBe("fnv1a64:ab771361ec343dba");
+    expect(hash).toBe("fnv1a64:cc223720d5121b4f");
     expect(
       solverConfigurationHash({
         budget: reorderedBudget,

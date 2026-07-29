@@ -753,6 +753,10 @@ durability              independent 14-day artifacts with raw streams,
 merge policy            deterministic completeness verification is deferred;
                         successful shards are never invalidated by another
                         shard or downstream merge failure
+first sharded dispatch  Actions 30421826839 stopped at source validation;
+                        no authority opened and no terminal shard started
+validation correction   v2 fixed-hash fixture and strict release-descriptor
+                        schema now bind the new algorithm/tie versions
 change control          ADR 0011
 ```
 
