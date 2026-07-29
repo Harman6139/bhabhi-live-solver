@@ -1229,6 +1229,7 @@ export function runPhase8SupportTune(input: {
   const diagnostics = new Map<string, SupportDiagnostic>();
   const run = runPhase6Calibration(phase6Plan, {
     scenarioSeeds: schedule.map((entry) => entry.runnerSeed),
+    allowPartialScenarioSeeds: input.scheduleSlice !== undefined,
     behaviorBeliefConfig:
       behaviorBeliefConfigFromSelectedArtifact(behaviorModel),
     feasibleSupportRegularizer: {

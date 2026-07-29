@@ -81,6 +81,12 @@ export type Phase6CalibrationRunOptions = Readonly<{
    */
   scenarioSeeds?: readonly CalibrationScenarioSeed[];
   /**
+   * Allows an authorized caller to execute a strict subset of scenarioSeeds.
+   * Every supplied coordinate is still checked for uniqueness, plan
+   * membership, and complete seed material.
+   */
+  allowPartialScenarioSeeds?: boolean;
+  /**
    * Train/tune-selected P2/P3 behavior parameters. Omission retains the
    * original shared default behavior model.
    */
@@ -263,6 +269,7 @@ function calibrationScenarioCoordinateKey(
 function verifiedScenarioSeeds(
   plan: Phase6CalibrationPlan,
   supplied: readonly CalibrationScenarioSeed[] | undefined,
+  allowPartial: boolean,
 ): readonly CalibrationScenarioSeed[] {
   if (supplied === undefined) {
     return calibrationScenarioSeeds(plan);
@@ -316,10 +323,11 @@ function verifiedScenarioSeeds(
     suppliedCoordinates.add(coordinate);
   }
   if (
-    suppliedCoordinates.size !== expectedCoordinates.size ||
-    [...expectedCoordinates].some(
-      (coordinate) => !suppliedCoordinates.has(coordinate),
-    )
+    !allowPartial &&
+    (suppliedCoordinates.size !== expectedCoordinates.size ||
+      [...expectedCoordinates].some(
+        (coordinate) => !suppliedCoordinates.has(coordinate),
+      ))
   ) {
     throw new Error(
       "Custom calibration schedule must contain every planned coordinate exactly once.",
@@ -493,7 +501,11 @@ export function runPhase6Calibration(
   let completedCheckpoints = 0;
   const checkpointClassCounts = emptyCheckpointClassCounts();
   const planHash = phase6CalibrationScientificPlanHash(plan);
-  const scenarioSeeds = verifiedScenarioSeeds(plan, options.scenarioSeeds);
+  const scenarioSeeds = verifiedScenarioSeeds(
+    plan,
+    options.scenarioSeeds,
+    options.allowPartialScenarioSeeds ?? false,
+  );
 
   for (const scenarioSeed of scenarioSeeds) {
     const identity = phase6CalibrationScenarioIdentity(plan, scenarioSeed);
