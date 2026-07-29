@@ -1,0 +1,273 @@
+name: Phase 8 maximum-throughput sharded qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      shards_json:
+        description: JSON array of zero-based terminal shards to run
+        required: true
+        default: "[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38]"
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: phase8-max-sharded-qualification
+  cancel-in-progress: false
+
+env:
+  SOURCE_REF: phase8-source-c1d397e
+  QUALIFICATION_AUTHORITY_ID: phase8-reference-qualification-20260729-c
+  QUALIFICATION_TERMINAL_ID: phase8-reference-qualification-terminal-20260729-c-sharded
+  QUALIFICATION_LATENCY_ID: phase8-reference-qualification-latency-20260729-c-actions
+  CONFIG_ID: p8-r-hard-balanced-v1
+  SHARD_COUNT: "39"
+  CI_LOG_DIR: artifacts/ci-logs
+
+jobs:
+  prepare:
+    name: Validate source and open clean qualification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out frozen scientific source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
+
+      - name: Restore verified Phase 7 sizing evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin ci-orchestration:refs/remotes/origin/ci-orchestration
+          transport="$RUNNER_TEMP/phase7-input.tar"
+          git archive --format=tar --output="$transport" origin/ci-orchestration ci-inputs/phase7-primary-v2-20260728-a.tar.gz
+          tar -xf "$transport" -C "$RUNNER_TEMP"
+          echo "1bbee4347435cbc2b6d9de7deefbca023df68b0f5bdb33899029fe47e4771866  $RUNNER_TEMP/ci-inputs/phase7-primary-v2-20260728-a.tar.gz" | sha256sum -c -
+          mkdir -p artifacts/evaluation/eval-v1/dev
+          tar -xzf "$RUNNER_TEMP/ci-inputs/phase7-primary-v2-20260728-a.tar.gz" -C artifacts/evaluation/eval-v1/dev
+          test -z "$(git status --short --untracked-files=all)"
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run frozen 12-command validation and open qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$CI_LOG_DIR"
+          npx tsx scripts/prepare-phase8-reference-authority.ts \
+            --authority-id "$QUALIFICATION_AUTHORITY_ID" | tee "$CI_LOG_DIR/prepare.log"
+
+      - name: Create qualification browser inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          qa="artifacts/evaluation/eval-v1/qualification/authorities/$QUALIFICATION_AUTHORITY_ID"
+          npx tsx scripts/create-phase8-latency-corpus.ts \
+            --authority "$qa/phase8-manifest-authority.json" \
+            --output "$qa/latency-corpus.json" \
+            --corpus-id phase8-reference-qualification-latency-corpus-20260729-c
+          npx tsx scripts/create-phase8-execution-bundle.ts \
+            --authority "$qa/phase8-manifest-authority.json" \
+            --model "$qa/model-not-applicable.json" \
+            --config-id "$CONFIG_ID" \
+            --output "$qa/evaluation-bundle.json"
+
+      - name: Upload opened qualification authority
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-sharded-prepared-${{ github.run_id }}
+          path: |
+            ${{ env.CI_LOG_DIR }}/prepare.log
+            artifacts/evaluation/eval-v1/qualification/authorities/${{ env.QUALIFICATION_AUTHORITY_ID }}
+            artifacts/evaluation/eval-v1/qualification/authorities/.incomplete-${{ env.QUALIFICATION_AUTHORITY_ID }}*
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+
+  qualification-terminal-shards:
+    name: Terminal shard ${{ matrix.shard }} of 39
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 39
+      matrix:
+        shard: ${{ fromJSON(inputs.shards_json) }}
+    steps:
+      - name: Check out frozen scientific source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
+
+      - name: Download opened qualification authority
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-sharded-prepared-${{ github.run_id }}
+          path: ${{ runner.temp }}/prepared
+
+      - name: Restore terminal inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          qa_parent="artifacts/evaluation/eval-v1/qualification/authorities"
+          source="$(find "$RUNNER_TEMP/prepared" -type d -name "$QUALIFICATION_AUTHORITY_ID" -print -quit)"
+          test -n "$source"
+          mkdir -p "$qa_parent"
+          cp -a "$source" "$qa_parent/"
+          test -z "$(git status --short --untracked-files=all)"
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Compute one durable work-conserving shard
+        shell: bash
+        run: |
+          set -euo pipefail
+          qa="artifacts/evaluation/eval-v1/qualification/authorities/$QUALIFICATION_AUTHORITY_ID"
+          output="artifacts/evaluation/eval-v1/qualification/terminal-shards/$QUALIFICATION_TERMINAL_ID"
+          mkdir -p "$CI_LOG_DIR"
+          npx tsx scripts/run-phase8-terminal-shard.ts \
+            --scope qualification \
+            --authority "$qa/phase8-manifest-authority.json" \
+            --opening "$qa/qualification-opening.json" \
+            --model "$qa/model-not-applicable.json" \
+            --output-root "$output" \
+            --run-id "$QUALIFICATION_TERMINAL_ID" \
+            --concurrency 4 \
+            --shard-index "${{ matrix.shard }}" \
+            --shard-count "$SHARD_COUNT" | tee "$CI_LOG_DIR/qualification-shard-${{ matrix.shard }}.log"
+
+      - name: Upload independent immutable shard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-qualification-shard-${{ github.run_id }}-${{ matrix.shard }}
+          path: |
+            ${{ env.CI_LOG_DIR }}/qualification-shard-${{ matrix.shard }}.log
+            artifacts/evaluation/eval-v1/qualification/terminal-shards/${{ env.QUALIFICATION_TERMINAL_ID }}
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+
+  qualification-latency:
+    name: Qualification browser latency
+    needs: prepare
+    runs-on: windows-2025
+    timeout-minutes: 360
+    steps:
+      - name: Check out frozen scientific source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
+
+      - name: Download opened qualification authority
+        uses: actions/download-artifact@v4
+        with:
+          name: phase8-sharded-prepared-${{ github.run_id }}
+          path: ${{ runner.temp }}/prepared
+
+      - name: Restore browser inputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'prepared') -Directory -Recurse |
+            Where-Object { $_.Name -eq $env:QUALIFICATION_AUTHORITY_ID } |
+            Select-Object -First 1
+          if ($null -eq $source) {
+            throw 'Prepared artifact has no qualification authority.'
+          }
+          $parent = 'artifacts/evaluation/eval-v1/qualification/authorities'
+          New-Item -ItemType Directory -Force -Path $parent | Out-Null
+          Copy-Item -LiteralPath $source.FullName -Destination $parent -Recurse
+          if (git status --short --untracked-files=all) {
+            throw 'Restoring ignored qualification inputs made the worktree dirty.'
+          }
+
+      - name: Set up Node 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install chromium
+
+      - name: Build exact evaluation-only route
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $qa = "artifacts/evaluation/eval-v1/qualification/authorities/$env:QUALIFICATION_AUTHORITY_ID"
+          $env:BHABHI_RELEASE_BUNDLE_PATH = (Resolve-Path "$qa/evaluation-bundle.json").Path
+          $env:BHABHI_RELEASE_EXPECT_MODE = 'evaluation-only'
+          npm run build
+
+      - name: Smoke-test corrected worker route
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $qa = "artifacts/evaluation/eval-v1/qualification/authorities/$env:QUALIFICATION_AUTHORITY_ID"
+          npx tsx scripts/bench-phase8-latency.ts `
+            --run-id "phase8-evaluation-worker-smoke-$env:GITHUB_RUN_ID" `
+            --manifest "$qa/qualification-manifest.json" `
+            --corpus "$qa/latency-corpus.json" `
+            --config-id $env:CONFIG_ID `
+            --dist dist `
+            --output-parent (Join-Path $env:RUNNER_TEMP 'latency-smoke') `
+            --power-mode 'GitHub Actions Windows hosted runner' `
+            --power-source 'provider-managed hosted runner' `
+            --background-load 'dedicated standard hosted runner; provider load uncontrolled'
+
+      - name: Run full qualification latency schedule
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $qa = "artifacts/evaluation/eval-v1/qualification/authorities/$env:QUALIFICATION_AUTHORITY_ID"
+          npx tsx scripts/bench-phase8-latency.ts `
+            --evidence-eligible `
+            --run-id $env:QUALIFICATION_LATENCY_ID `
+            --manifest "$qa/qualification-manifest.json" `
+            --corpus "$qa/latency-corpus.json" `
+            --config-id $env:CONFIG_ID `
+            --dist dist `
+            --output-parent 'artifacts/evaluation/eval-v1/qualification/phase8-latency' `
+            --power-mode 'GitHub Actions Windows hosted runner' `
+            --power-source 'provider-managed hosted runner' `
+            --background-load 'dedicated standard hosted runner; provider load uncontrolled'
+
+      - name: Upload immutable qualification latency evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-qualification-latency-${{ github.run_id }}
+          path: |
+            artifacts/evaluation/eval-v1/qualification/phase8-latency/${{ env.QUALIFICATION_LATENCY_ID }}
+            artifacts/evaluation/eval-v1/qualification/phase8-latency/.incomplete-${{ env.QUALIFICATION_LATENCY_ID }}*
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
