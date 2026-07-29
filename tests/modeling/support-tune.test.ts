@@ -571,6 +571,33 @@ describe("Phase 8 support-regularizer tune evidence", () => {
     ).toBe(true);
   });
 
+  it("treats a hard-known-only conditional family as non-tunable", () => {
+    const { plan } = fixture("smoke");
+    const corpus = syntheticCorpus(plan);
+    const observations = corpus.observations.filter(
+      (observation) =>
+        observation.family !== "conditional" ||
+        observation.scoreStatus === "conditioning-false",
+    );
+    const scored = scorePhase8SupportTuneCandidates({
+      plan,
+      games: corpus.games,
+      observations,
+    });
+
+    expect(scored.integrity.passed).toBe(true);
+    expect(
+      scored.evaluations.every(
+        (evaluation) => evaluation.familyScores.conditional === 0,
+      ),
+    ).toBe(true);
+    expect(
+      scored.evaluations.every((evaluation) =>
+        Number.isFinite(evaluation.score.equalFamilyUnresolvedSoftBrier),
+      ),
+    ).toBe(true);
+  });
+
   it("rejects incomplete clusters, execution failures, and raw-zero feasible truths", async () => {
     const { model, plan } = fixture("smoke");
     const corpus = syntheticCorpus(plan);

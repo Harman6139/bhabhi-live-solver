@@ -868,6 +868,7 @@ function nestedCandidateScore(input: {
 
   let missingFamilyRotationCells = 0;
   const familyScores = {} as Record<Phase8CalibrationPrimaryFamily, number>;
+  const tunableFamilyScores: number[] = [];
   for (const family of PHASE8_CALIBRATION_PRIMARY_FAMILIES) {
     const clusterScores: number[] = [];
     for (const clusterId of [...completeClusterIds].sort(compareText)) {
@@ -895,16 +896,26 @@ function nestedCandidateScore(input: {
         );
       }
     }
-    familyScores[family] = mean(
+    if (clusterScores.length === 0) {
+      if (family !== "conditional") {
+        fail(`${family} complete style-base clusters has no values.`);
+      }
+      // Conditional queries can be hard-known-only by construction. They
+      // contain no pseudocount-tunable error and therefore cannot distinguish
+      // candidates; retain a finite zero diagnostic while excluding that
+      // uninformative family from the equal-family candidate objective.
+      familyScores[family] = 0;
+      continue;
+    }
+    const familyScore = mean(
       clusterScores,
       `${family} complete style-base clusters`,
     );
+    familyScores[family] = familyScore;
+    tunableFamilyScores.push(familyScore);
   }
   return Object.freeze({
-    score: mean(
-      PHASE8_CALIBRATION_PRIMARY_FAMILIES.map((family) => familyScores[family]),
-      "equal primary families",
-    ),
+    score: mean(tunableFamilyScores, "equal tunable primary families"),
     familyScores: Object.freeze(familyScores),
     missingFamilyRotationCells,
   });
