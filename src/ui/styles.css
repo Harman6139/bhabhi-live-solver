@@ -1566,3 +1566,666 @@ fieldset {
     width: 100%;
   }
 }
+
+/* Real-table play surface */
+.playing-card {
+  position: relative;
+  display: block;
+  width: 4.25rem;
+  aspect-ratio: 5 / 7;
+  overflow: hidden;
+  border: 1px solid #d5d8d5;
+  border-radius: 0.42rem;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 92%), transparent 42%), #f7f5ef;
+  box-shadow:
+    0 0.45rem 0.85rem rgb(0 0 0 / 25%),
+    inset 0 0 0 1px rgb(255 255 255 / 70%);
+  color: #171a19;
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1;
+  user-select: none;
+}
+
+.playing-card--compact {
+  width: 3.45rem;
+}
+
+.playing-card--red {
+  color: #c92632;
+}
+
+.playing-card__corner {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  justify-items: center;
+  gap: 0.02rem;
+  font-style: normal;
+}
+
+.playing-card__corner b {
+  font-size: 0.92rem;
+  letter-spacing: -0.08em;
+}
+
+.playing-card__corner i {
+  font-size: 0.82rem;
+  font-style: normal;
+}
+
+.playing-card__corner--top {
+  top: 0.3rem;
+  left: 0.3rem;
+}
+
+.playing-card__corner--bottom {
+  right: 0.3rem;
+  bottom: 0.3rem;
+  transform: rotate(180deg);
+}
+
+.playing-card__pip {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  margin: 0 !important;
+  transform: translate(-50%, -50%);
+  font-size: 2rem !important;
+  line-height: 1;
+}
+
+.card-button,
+.compact-hand-picker .card-button,
+.move-entry .card-button {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  aspect-ratio: 5 / 7;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  padding: 0;
+}
+
+.card-button > .playing-card,
+.card-button > span:first-child,
+.card-button > span:last-child {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  font-size: inherit;
+}
+
+.card-button:hover {
+  border-color: transparent;
+  transform: translateY(-0.18rem) rotate(-0.5deg);
+}
+
+.card-button:hover .playing-card {
+  box-shadow:
+    0 0.7rem 1.1rem rgb(0 0 0 / 34%),
+    0 0 0 2px rgb(93 224 162 / 48%);
+}
+
+.card-button--selected {
+  border: 0;
+  color: inherit;
+  background: transparent;
+  box-shadow: none;
+  transform: translateY(-0.28rem);
+}
+
+.card-button--selected .playing-card {
+  box-shadow:
+    0 0.7rem 1.1rem rgb(0 0 0 / 38%),
+    0 0 0 3px var(--green);
+}
+
+.deal-questions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.seat-choice {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  padding: 0.75rem;
+}
+
+.seat-choice legend {
+  padding: 0 0.3rem;
+  color: #f0f5f2;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.seat-choice legend span {
+  color: var(--green);
+}
+
+.seat-choice__options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.seat-choice__option {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 3.6rem;
+  place-content: center;
+  gap: 0.1rem;
+  border: 1px solid #3c5a50;
+  border-radius: 0.7rem;
+  background: #0b1915;
+  text-align: center;
+  cursor: pointer;
+}
+
+.seat-choice__option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.seat-choice__option:has(input:focus-visible) {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.seat-choice__option--active {
+  border-color: var(--green);
+  background: var(--green-deep);
+  box-shadow: inset 0 0 0 1px rgb(93 224 162 / 30%);
+}
+
+.seat-choice__option small {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.quick-setup > .auto-counts {
+  margin-top: 0.65rem;
+}
+
+.play-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.play-brand__mark {
+  display: grid;
+  width: 2.65rem;
+  height: 2.65rem;
+  flex: 0 0 auto;
+  place-content: center;
+  border: 1px solid rgb(93 224 162 / 45%);
+  border-radius: 50%;
+  color: var(--green);
+  background: #102a21;
+  font-family: Georgia, serif;
+  font-size: 1.3rem;
+  font-weight: 900;
+}
+
+.play-header--table h1 {
+  font-size: clamp(1.25rem, 3vw, 1.9rem);
+}
+
+.game-table {
+  position: relative;
+  isolation: isolate;
+  width: min(64rem, calc(100vw - 2rem));
+  height: clamp(25rem, 49vw, 32rem);
+  margin: 0 auto;
+  overflow: visible;
+  border: 0.6rem solid #583a24;
+  border-radius: 50% / 44%;
+  background: radial-gradient(
+    ellipse at center,
+    #176842 0%,
+    #0c4b31 55%,
+    #073422 100%
+  );
+  box-shadow:
+    inset 0 0 0 0.2rem #a07143,
+    inset 0 0 5rem rgb(0 0 0 / 34%),
+    0 1.2rem 3rem rgb(0 0 0 / 36%);
+}
+
+.game-table__felt {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0.3;
+  background-image:
+    radial-gradient(
+      circle at 20% 20%,
+      rgb(255 255 255 / 9%) 0 1px,
+      transparent 1.5px
+    ),
+    radial-gradient(
+      circle at 70% 65%,
+      rgb(0 0 0 / 12%) 0 1px,
+      transparent 1.5px
+    );
+  background-size:
+    8px 8px,
+    11px 11px;
+}
+
+.game-table__direction {
+  position: absolute;
+  z-index: 4;
+  top: 0.75rem;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  color: rgb(237 255 247 / 78%);
+  background: rgb(3 34 21 / 62%);
+  padding: 0.3rem 0.6rem;
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.game-table__direction b {
+  color: var(--green);
+  font-size: 1.15rem;
+  line-height: 0.7;
+}
+
+.table-seat {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  width: 7.2rem;
+  min-height: 5.1rem;
+  place-content: center;
+  justify-items: center;
+  border: 2px solid rgb(220 241 231 / 24%);
+  border-radius: 1rem;
+  background: rgb(5 35 23 / 88%);
+  box-shadow: 0 0.5rem 1.2rem rgb(0 0 0 / 30%);
+  text-align: center;
+}
+
+.table-seat__avatar {
+  display: grid;
+  width: 1.65rem;
+  height: 1.65rem;
+  margin-bottom: 0.15rem;
+  place-content: center;
+  border-radius: 50%;
+  color: #062116;
+  background: #d8eadf;
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.table-seat > strong {
+  font-size: 0.82rem;
+}
+
+.table-seat > span:not(.table-seat__avatar),
+.table-seat > small {
+  color: #b9d0c4;
+  font-size: 0.65rem;
+}
+
+.table-seat > small {
+  color: var(--amber);
+  font-weight: 800;
+}
+
+.table-seat--user {
+  bottom: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.table-seat--p2 {
+  top: 3rem;
+  left: 3rem;
+}
+
+.table-seat--p3 {
+  top: 3rem;
+  right: 3rem;
+}
+
+.table-seat--current {
+  border-color: #8affc6;
+  box-shadow:
+    0 0 0 0.3rem rgb(93 224 162 / 28%),
+    0 0 1.8rem rgb(93 224 162 / 48%);
+}
+
+.table-seat--out {
+  opacity: 0.46;
+}
+
+.turn-token {
+  position: absolute;
+  top: -0.65rem;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  color: #062116 !important;
+  background: var(--green);
+  padding: 0.2rem 0.55rem;
+  font-size: 0.58rem !important;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.table-play {
+  position: absolute;
+  z-index: 3;
+  filter: drop-shadow(0 0.55rem 0.55rem rgb(0 0 0 / 30%));
+}
+
+.table-play--user {
+  bottom: 6.5rem;
+  left: 50%;
+  transform: translateX(-50%) rotate(2deg);
+}
+
+.table-play--p2 {
+  top: 8.6rem;
+  left: 25%;
+  transform: rotate(-8deg);
+}
+
+.table-play--p3 {
+  top: 8.6rem;
+  right: 25%;
+  transform: rotate(8deg);
+}
+
+.game-table__center {
+  position: absolute;
+  z-index: 2;
+  inset: 50% auto auto 50%;
+  width: min(22rem, 43%);
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.fresh-trick {
+  display: block;
+  margin-bottom: 0.45rem;
+  color: rgb(224 244 234 / 65%);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.table-recommendation .recommendation-panel--single,
+.table-recommendation .recommendation-loading,
+.table-turn-prompt {
+  min-height: 0;
+  border: 1px solid rgb(157 255 208 / 58%);
+  border-radius: 0.85rem;
+  background: rgb(3 36 23 / 88%);
+  box-shadow: 0 0.8rem 2rem rgb(0 0 0 / 28%);
+  padding: 0.65rem;
+}
+
+.table-recommendation .recommendation-panel--single {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  justify-content: center;
+  text-align: left;
+}
+
+.table-recommendation .recommendation-panel--single .engine-quality {
+  grid-column: 1 / -1;
+  justify-self: center;
+  margin-top: 0.25rem;
+  padding: 0.2rem 0.45rem;
+}
+
+.table-recommendation .recommendation-panel--single h2 {
+  font-size: clamp(1.1rem, 2.5vw, 1.55rem);
+}
+
+.table-recommendation .recommendation-panel--single .playing-card {
+  width: 2.8rem;
+}
+
+.recommendation-panel__copy {
+  align-self: center;
+}
+
+.table-turn-prompt {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.table-turn-prompt strong {
+  font-size: 1rem;
+}
+
+.table-controls {
+  margin-top: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgb(11 25 21 / 94%);
+}
+
+.table-controls .card-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+  margin-top: 0.65rem;
+}
+
+.table-controls .suit-row,
+.table-controls .suit-row__cards {
+  display: contents;
+}
+
+.table-controls .suit-row__label {
+  display: none;
+}
+
+.table-controls .card-button {
+  width: 3.25rem;
+  flex: 0 0 3.25rem;
+}
+
+.observed-card-drawer {
+  margin-top: 0.6rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.55rem;
+}
+
+.observed-card-drawer summary {
+  width: max-content;
+  cursor: pointer;
+  color: var(--green);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.thulla-receipt {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 0.7rem;
+  border: 1px solid rgb(242 196 109 / 42%);
+  border-radius: 0.8rem;
+  color: #ffe6b7;
+  background: rgb(77 55 19 / 52%);
+  padding: 0.55rem 0.75rem;
+  font-size: 0.76rem;
+}
+
+.thulla-receipt strong {
+  color: var(--amber);
+}
+
+.thulla-receipt small {
+  color: #dacaa9;
+}
+
+@media (max-width: 720px) {
+  .deal-questions {
+    grid-template-columns: 1fr;
+  }
+
+  .play-shell {
+    padding: 0.55rem;
+  }
+
+  .play-header--table {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .play-header--table .play-header__actions {
+    max-width: 9.5rem;
+    justify-content: flex-end;
+    gap: 0.25rem;
+  }
+
+  .play-header--table .save-dot {
+    display: none;
+  }
+
+  .play-header--table .text-button {
+    min-height: 2rem;
+    padding: 0.25rem 0.38rem;
+    font-size: 0.68rem;
+  }
+
+  .play-brand__mark {
+    display: none;
+  }
+
+  .game-table {
+    width: calc(100vw - 1.1rem);
+    height: 24rem;
+    border-width: 0.4rem;
+  }
+
+  .table-seat {
+    width: 5.4rem;
+    min-height: 4.35rem;
+    border-radius: 0.8rem;
+  }
+
+  .table-seat--p2 {
+    top: 2.7rem;
+    left: 0.55rem;
+  }
+
+  .table-seat--p3 {
+    top: 2.7rem;
+    right: 0.55rem;
+  }
+
+  .table-seat--user {
+    bottom: 0.45rem;
+  }
+
+  .table-play--p2 {
+    top: 7.8rem;
+    left: 18%;
+  }
+
+  .table-play--p3 {
+    top: 7.8rem;
+    right: 18%;
+  }
+
+  .table-play--user {
+    bottom: 5.3rem;
+  }
+
+  .game-table__center {
+    width: 44%;
+  }
+
+  .table-recommendation .recommendation-panel--single {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .table-recommendation .recommendation-panel--single .playing-card {
+    display: none;
+  }
+
+  .table-recommendation .recommendation-panel--single .engine-quality {
+    display: none;
+  }
+
+  .table-recommendation .recommendation-loading small {
+    display: none;
+  }
+
+  .table-controls .move-entry__heading {
+    gap: 0.55rem;
+  }
+
+  .table-controls .card-grid {
+    flex-wrap: nowrap;
+    margin-right: -0.55rem;
+    margin-left: -0.55rem;
+    overflow-x: auto;
+    padding: 0.35rem 0.55rem 0.7rem;
+    scroll-snap-type: x proximity;
+  }
+
+  .table-controls .card-button {
+    width: 3.4rem;
+    flex-basis: 3.4rem;
+    scroll-snap-align: center;
+  }
+
+  .thulla-receipt {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .game-table {
+    height: 22.5rem;
+  }
+
+  .game-table__direction {
+    top: 0.35rem;
+  }
+
+  .table-seat--p2,
+  .table-seat--p3 {
+    top: 2rem;
+  }
+
+  .table-play--p2,
+  .table-play--p3 {
+    top: 6.8rem;
+  }
+
+  .game-table__center {
+    top: 52%;
+    width: 47%;
+  }
+}

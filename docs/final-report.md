@@ -1,95 +1,127 @@
 # Final Report
 
-This report is finalized only after the create-exclusive Phase 8 qualification,
-final, and Phase 9 release-validation artifacts pass. The implementation below
-is source-frozen; measured clean-split fields will be replaced from artifacts
-without changing the scientific source snapshot.
+## Release status
 
-## 1. What was built
+Phase 8 is complete and the selected R engine is model-ready. The full GOAL is
+not yet complete: Actions run 30480677017 stopped in the final Phase 9
+attestation when `prettier --check` reported Windows formatting differences in
+304 files. That job failed before the remaining regression commands and did not
+create the release-validation artifact. No model, terminal, or latency compute
+failed, and none of the expensive Phase 8 work needs to be repeated.
 
-A local-first three-player Bhabhi / Getaway manual tracker and live solver:
-typed rules and event replay, exact card conservation, correlated hard
-inference, research-only behavioral inference, terminal-risk search, a
-truth-separated simulator/evaluation stack, a verified dedicated-worker
-production route, stale-result rejection, explanations, diagnostics,
-corrections, IndexedDB persistence, and archive import/export.
+## 1. Product
 
-## 2. Default rules and supported variants
+The project is a local-first three-player Bhabhi / Getaway manual tracker and
+decision assistant. It includes typed household rules, event-sourced replay and
+correction, card conservation, correlated hidden-hand inference, terminal-risk
+search, a truth-separated simulator/evaluation stack, a dedicated browser
+worker, stale-result rejection, persistence, archive import/export, and
+user-facing explanations.
 
-The default is the documented Pagat-style clockwise profile: A-spades opening,
-compulsory follow, opening trick completed normally, later first off-suit play
-ends the trick, highest lead-suit holder picks up, and the implemented Pagat
-heads-up transition. The closed `RuleConfig` also exposes the tested opening,
-direction, zero-power, take-hand, draw/waste, and heads-up alternatives.
-Household rules outside that closed set are unsupported.
+The selected production route is the hard-only Balanced reference
+`p8-r-hard-balanced-v1`. It ranks actions by estimated terminal Bhabhi risk;
+pickup risk, power, hand size, and immediate shedding are diagnostics rather
+than the primary objective.
 
-## 3. Architecture and key decisions
+## 2. Rules and information integrity
 
-The source uses pure strict TypeScript cores with React at the UI boundary.
-Public inference and search cannot import simulator truth. Production analysis
-runs in a dedicated worker and verifies an embedded release bundle plus every
-request/result identity. ADRs 0001–0009 record the architecture, inference,
-simulation, solver, confirmation, evidence-bundle, and reference-only release
-decisions.
+The canonical profile is clockwise: A-spades opens, following suit is
+compulsory, the opening trick completes and goes to waste, and the first later
+off-suit thulla ends its trick so the highest lead-suit player picks up. Typed
+variants cover direction, opening restrictions, take-hand behavior,
+zero-cards-with-power behavior, and the implemented two-player transition.
 
-## 4. Validation commands and results
+Production inference and search receive only public history. Exact simulator
+truth stays behind tested import and metamorphic firewalls. Visible pickups,
+chronological voids, hand counts, waste, and card conservation remain hard
+constraints.
 
-The frozen Phase 8 source-validation suite contains format, lint, typecheck,
-complete unit/regression, property, integration, truth-firewall, simulator,
-solver, calibration, production build, and browser E2E commands. Phase 9 adds
-the exact selected build, selected-route product/accessibility E2E, a clean
-worktree `npm ci` dry run, and release attestation. Clean artifact-derived
-command counts and hashes are not yet recorded in this pre-run version.
+## 3. Frozen source and evidence chain
 
-## 5. Benchmark and calibration results
+- Scientific source: `phase8-source-b82e68a` /
+  `b82e68a56b914197328dbef0a8e519207e8f47b7`
+- Complete release DAG: Actions run 30480677017
+- Qualification: 39 independently durable terminal shards, deterministic merge,
+  and browser latency
+- Final: 39 untouched terminal shards, deterministic merge, final browser
+  latency, selection/final attestations, and selected release construction
+- Selected release artifact: `phase8-recovery-selected-release-30480677017-1`
+  (artifact 8743116265)
+- Selected release bundle SHA-256:
+  `1acc6726cf38867ed393eb86a52a9a10208b4ae50f2ddeaa2b6d01d21f5b0de9`
+- Release source binding:
+  `0e8dfe629c4a2580d3de65ee8d8150afa2ba90f48a8d2ee95b4368c5841602ef`
+- Protocol binding:
+  `371ad4a6abef5ceb97c404cd5f4fc848f567db180d79351753eb6234cc250693`
 
-The selected first-release registry is genuinely one-arm and reference-only.
-Behavior train/tune, behavior qualification calibration, component contrast,
-and support regularization are therefore not applicable, rather than reported
-as synthetic zero effects. Qualification/final terminal sample counts, Bhabhi
-rates, and intervals will be copied from the immutable reports after execution.
+The selected artifact was imported locally and 20/20 internal checksum entries
+passed. The exact frozen source also built successfully with the embedded
+`release-selected` bundle.
 
-## 6. Latency results and hardware
+## 4. Terminal results
 
-Browser evidence uses production Chromium, warm/cold Instant, Balanced, and Deep
-requests, Offline requests, deterministic input probes, long-task observation,
-and 1,000 cancellation/stale-publication races. The initial machine is Windows
-11, Intel Core i5-9300H (4 cores / 8 logical processors), approximately 8 GiB
-RAM, Node.js 22.13.0. Exact artifact-measured p50/p95 values and environment
-fields will be copied after execution.
+The first release registry is genuinely reference-only. These are one-arm
+confirmations, not evidence that R beats another configuration.
 
-## 7. Enabled and rejected experimental components
+| Split           | Complete games | User Bhabhi | Bhabhi rate | Failures/caps/cancellations |
+| --------------- | -------------: | ----------: | ----------: | --------------------------: |
+| Qualification   |          3,264 |         445 |    13.6336% |                           0 |
+| Untouched final |          3,264 |         446 |    13.6642% |                           0 |
 
-Enabled: the direct Phase 5 Balanced hard-only reference route.
+Final finishing counts were 1,068 first (32.72%), 1,750 second (53.62%), and
+446 third/Bhabhi (13.66%). The final terminal runner's p95 decision latency was
+519.07 ms.
 
-Disabled: behavioral weighting and exact-endgame production dispatch. They
-remain implemented and tested as research components but cannot be represented
-as release-eligible without a genuine browser worker route and clean evidence.
-The release makes no “beats” claim against itself.
+## 5. Selected-route browser latency
 
-## 8. Known limitations and next work
+The exact selected-release route completed 3,400/3,400 measured requests with
+zero failures. All 1,000 cancellation races completed with zero obsolete
+publications. The reproduction digest is `fnv1a64:30be373f4fa1e208`.
 
-The tracker is manual and supports exactly three starting players. Community
-rule sources conflict, so unsupported household semantics require an explicit
-new profile. The current uncertainty intervals describe the implemented
-sampling/model assumptions, not unknown model misspecification. Browser APIs do
-not expose attributable dedicated-worker CPU/memory on this platform; unavailable
-metrics are reported with reasons. The next highest-value work is a genuinely
-executable advanced route followed by a new preregistered qualification.
+| Mode     | Warm wall p95 |
+| -------- | ------------: |
+| Instant  |     159.56 ms |
+| Balanced |     405.33 ms |
+| Deep     |   2,374.41 ms |
+| Offline  |  15,364.74 ms |
 
-## 9. Runnable artifacts and reproducibility data
+The selected-route runner was a GitHub-hosted Windows machine with 4 logical
+CPUs, 16 GiB RAM, Node 22.13.0, and Chromium 151.0.7922.34. Dedicated-worker
+CPU and memory attribution are unavailable through the browser APIs and were
+not estimated.
 
-Expected create-exclusive roots:
+## 6. Model inventory
 
-- qualification authority and opening:
-  `artifacts/evaluation/eval-v1/qualification/authorities/phase8-reference-qualification-20260728-a`
-- qualification terminal/latency/evidence bundles:
-  `artifacts/evaluation/eval-v1/qualification/`
-- final authority, terminal/latency/evidence bundle:
-  `artifacts/evaluation/eval-v1/final/`
-- selected production bundle and Phase 9 validation:
-  `artifacts/release/`
+- R (`p8-r-hard-balanced-v1`): selected, final-confirmed, release-bundled, and
+  ready.
+- E (`p8-e-exact-hard-fallback-v1`): implemented as an exact attempt with
+  byte-identical R fallback, but only available in an evaluation-only practical
+  bundle; not formally selected or qualified.
+- B and BE: behavior train/tune and all 30 support shards completed, but sealing
+  rejected 10,338 raw zero-feasible-truth observations. They have no production
+  bundle and no valid performance result.
 
-The exact successful paths, payload hashes, reproduction digests, and release
-validation digest will replace these pre-run descriptions directly from the
-artifacts.
+The B/BE failure is not a request for more blind computation. The model/support
+logic must be diagnosed first; only then can the existing durable shards be
+rescored if that is scientifically valid.
+
+## 7. Compact play build caveat
+
+The compact play branch embeds the verified R bundle but intentionally requests
+Deep analysis and adds a post-freeze same-suit high-card preference for exactly
+tied terminal-risk estimates. The formal 13.66% result covers frozen Balanced R,
+not those post-freeze play-build choices. Deep did pass operational latency and
+cancellation testing, but it has no separate terminal-rate claim.
+
+When the user starts with 17 cards, the identity of the opponent holding 18
+cards cannot be inferred from A-spades ownership alone. The current compact
+setup uses that shortcut, so 17-card starts require a household/deal assumption
+or a future belief mixture before they can be called fully evidence-aligned.
+
+## 8. Remaining release work
+
+One focused Phase 9 validation/attestation run remains after locally fixing the
+Windows checkout line-ending behavior. It must reuse the existing selected
+bundle, run the skipped format/lint/typecheck/regression/build/firewall/E2E and
+clean-install checks, and create the missing attestation. No Phase 8 training,
+terminal evaluation, or latency run is required.

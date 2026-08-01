@@ -12,6 +12,12 @@ import {
   type Phase8ProductionModelArtifact,
   type Phase8ProductionModelConfig,
 } from "../modeling/production-model";
+import {
+  parsePhase8PracticalBehaviorModelArtifact,
+  phase8PracticalBehaviorModelConfig,
+  serializePhase8PracticalBehaviorModelArtifact,
+  type Phase8PracticalBehaviorModelArtifact,
+} from "../modeling/practical-behavior-model";
 import { BEHAVIOR_WEIGHTED_APPROXIMATE_ALGORITHM_VERSION } from "../search/behavior-weighted-approximate";
 import { PUBLIC_HISTORY_ROOT_TIE_BREAK_VERSION } from "../search/root-tie-break";
 import { SEARCH_ALGORITHM_VERSION } from "../search/types";
@@ -308,10 +314,13 @@ export type VerifiedProductionRelease = Readonly<{
   manifestScope: ProductionManifestScope;
   selectionAttestation: SelectionAttestation | null;
   finalAttestation: FinalAttestation | null;
-  modelArtifact: Phase8ProductionModelArtifact | null;
+  modelArtifact: ExecutableBehaviorModelArtifact | null;
   modelConfig: Phase8ProductionModelConfig | null;
   binding: ProductionAnalysisBinding;
 }>;
+
+export type ExecutableBehaviorModelArtifact =
+  Phase8ProductionModelArtifact | Phase8PracticalBehaviorModelArtifact;
 
 export type ProductionReleaseErrorCode =
   | "RELEASE_UNAVAILABLE"
@@ -482,7 +491,7 @@ async function verifyDescriptor(
   descriptor: ProductionConfigurationDescriptor,
   modelSha256: string,
   modelConfig: Phase8ProductionModelConfig | null,
-  modelArtifact: Phase8ProductionModelArtifact | null,
+  modelArtifact: ExecutableBehaviorModelArtifact | null,
 ): Promise<void> {
   const projection = Object.fromEntries(
     Object.entries(descriptor).filter(([key]) => key !== "configSha256"),
@@ -608,7 +617,7 @@ function parseExecutionModel(
   bundle: ExecutableProductionBundle,
   descriptor: ProductionConfigurationDescriptor,
 ): {
-  readonly artifact: Phase8ProductionModelArtifact | null;
+  readonly artifact: ExecutableBehaviorModelArtifact | null;
   readonly config: Phase8ProductionModelConfig | null;
 } {
   if (!isBehaviorProductionRole(descriptor.configId)) {
@@ -630,7 +639,8 @@ function parseExecutionModel(
     }
     return { artifact: null, config: null };
   }
-  let artifact: Phase8ProductionModelArtifact;
+  let artifact: ExecutableBehaviorModelArtifact;
+  let config: Phase8ProductionModelConfig;
   try {
     artifact = parsePhase8ProductionModelArtifact(bundle.productionModel.bytes);
     if (
@@ -639,8 +649,29 @@ function parseExecutionModel(
     ) {
       invalidRelease("Production model bytes are not canonical.");
     }
-  } catch (cause) {
-    invalidRelease("Production model verification failed", cause);
+    config = phase8ProductionModelConfig(artifact);
+  } catch (sealedCause) {
+    if (bundle.mode !== "evaluation-only") {
+      invalidRelease("Production model verification failed", sealedCause);
+    }
+    try {
+      const practical = parsePhase8PracticalBehaviorModelArtifact(
+        bundle.productionModel.bytes,
+      );
+      if (
+        serializePhase8PracticalBehaviorModelArtifact(practical) !==
+        bundle.productionModel.bytes
+      ) {
+        invalidRelease("Practical behavior model bytes are not canonical.");
+      }
+      artifact = practical;
+      config = phase8PracticalBehaviorModelConfig(practical);
+    } catch (practicalCause) {
+      invalidRelease(
+        "Evaluation behavior model verification failed",
+        new AggregateError([sealedCause, practicalCause]),
+      );
+    }
   }
   if (artifact.payload.behavior.payload.sourceHash !== bundle.sourceHash) {
     invalidRelease(
@@ -649,13 +680,13 @@ function parseExecutionModel(
   }
   return {
     artifact,
-    config: phase8ProductionModelConfig(artifact),
+    config,
   };
 }
 
 async function executableCore(bundle: ExecutableProductionBundle): Promise<{
   readonly descriptor: ProductionConfigurationDescriptor;
-  readonly modelArtifact: Phase8ProductionModelArtifact | null;
+  readonly modelArtifact: ExecutableBehaviorModelArtifact | null;
   readonly modelConfig: Phase8ProductionModelConfig | null;
 }> {
   await Promise.all([
@@ -689,7 +720,7 @@ function verifiedResult(input: {
   readonly manifestScope: ProductionManifestScope;
   readonly selectionAttestation: SelectionAttestation | null;
   readonly finalAttestation: FinalAttestation | null;
-  readonly modelArtifact: Phase8ProductionModelArtifact | null;
+  readonly modelArtifact: ExecutableBehaviorModelArtifact | null;
   readonly modelConfig: Phase8ProductionModelConfig | null;
 }): VerifiedProductionRelease {
   const selectionHash =

@@ -24,21 +24,23 @@ type SetupScreenProps = {
   readonly onImport: (serialized: string) => void;
 };
 
-function automaticCounts(userCount: 17 | 18, aceHolder: Seat): StartingCounts {
-  if (userCount === 18) {
-    return { user: 18, p2: 17, p3: 17 };
-  }
+const COUNTERCLOCKWISE_RULES = {
+  ...CANONICAL_RULES,
+  direction: "anticlockwise",
+} as const;
 
-  // One opponent has the extra card. Keep setup choice-free by assigning it
-  // to the declared opener when that opener is an opponent; otherwise use the
-  // next clockwise seat.
-  return aceHolder === "p3"
-    ? { user: 17, p2: 17, p3: 18 }
-    : { user: 17, p2: 18, p3: 17 };
+const SETUP_SEATS = ["user", "p2", "p3"] as const;
+
+function countsForExtraCard(extraCardHolder: Seat): StartingCounts {
+  return {
+    user: extraCardHolder === "user" ? 18 : 17,
+    p2: extraCardHolder === "p2" ? 18 : 17,
+    p3: extraCardHolder === "p3" ? 18 : 17,
+  };
 }
 
 export function SetupScreen({ onCreate, onImport }: SetupScreenProps) {
-  const [userCount, setUserCount] = useState<17 | 18>(18);
+  const [extraCardHolder, setExtraCardHolder] = useState<Seat>("user");
   const [aceHolder, setAceHolder] = useState<Seat>("p2");
   const [selected, setSelected] = useState<Card[]>([]);
   const [alias, setAlias] = useState("");
@@ -46,8 +48,16 @@ export function SetupScreen({ onCreate, onImport }: SetupScreenProps) {
   const importRef = useRef<HTMLInputElement>(null);
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
+  const counts = countsForExtraCard(extraCardHolder);
+  const userCount = counts.user;
   const remaining = userCount - selected.length;
-  const counts = automaticCounts(userCount, aceHolder);
+
+  function chooseExtraCardHolder(seat: Seat): void {
+    const nextUserCount = seat === "user" ? 18 : 17;
+    setExtraCardHolder(seat);
+    setSelected((current) => current.slice(0, nextUserCount));
+    setError(null);
+  }
 
   function toggleCard(card: Card): void {
     setError(null);
@@ -92,7 +102,7 @@ export function SetupScreen({ onCreate, onImport }: SetupScreenProps) {
     onCreate({
       type: "game-created",
       schemaVersion: 1,
-      rules: CANONICAL_RULES,
+      rules: COUNTERCLOCKWISE_RULES,
       userHand: selected,
       startingCounts: counts,
       aceSpadesHolder: aceHolder,
@@ -119,7 +129,7 @@ export function SetupScreen({ onCreate, onImport }: SetupScreenProps) {
     <main className="app-shell setup-shell compact-setup">
       <header className="compact-hero">
         <div>
-          <p className="eyebrow">3-player · clockwise · local only</p>
+          <p className="eyebrow">3 players · counterclockwise ↺ · local only</p>
           <h1>Bhabhi live solver</h1>
         </div>
         <button
@@ -149,41 +159,67 @@ export function SetupScreen({ onCreate, onImport }: SetupScreenProps) {
           </strong>
         </div>
 
-        <div className="quick-setup__controls">
-          <label>
-            Your card count
-            <select
-              value={userCount}
-              onChange={(event) => {
-                const next = Number(event.target.value) as 17 | 18;
-                setUserCount(next);
-                setSelected((current) => current.slice(0, next));
-                setError(null);
-              }}
-            >
-              <option value={18}>18</option>
-              <option value={17}>17</option>
-            </select>
-          </label>
-          <label>
-            Who has A♠ and opens?
-            <select
-              value={aceHolder}
-              onChange={(event) => {
-                setAceHolder(event.target.value as Seat);
-                setError(null);
-              }}
-            >
-              <option value="user">You</option>
-              <option value="p2">Player 2</option>
-              <option value="p3">Player 3</option>
-            </select>
-          </label>
-          <div className="auto-counts" aria-label="Automatic starting counts">
-            <span>You {counts.user}</span>
-            <span>P2 {counts.p2}</span>
-            <span>P3 {counts.p3}</span>
-          </div>
+        <div className="deal-questions">
+          <fieldset className="seat-choice">
+            <legend>Who received the 18th / extra card?</legend>
+            <div className="seat-choice__options">
+              {SETUP_SEATS.map((seat) => (
+                <label
+                  className={`seat-choice__option ${
+                    extraCardHolder === seat
+                      ? "seat-choice__option--active"
+                      : ""
+                  }`}
+                  key={seat}
+                >
+                  <input
+                    type="radio"
+                    name="extra-card-holder"
+                    value={seat}
+                    checked={extraCardHolder === seat}
+                    onChange={() => chooseExtraCardHolder(seat)}
+                  />
+                  <strong>{seatLabel(seat)}</strong>
+                  <small>{counts[seat]} cards</small>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset className="seat-choice">
+            <legend>
+              Who plays Hukam? <span>(A♠ opener)</span>
+            </legend>
+            <div className="seat-choice__options">
+              {SETUP_SEATS.map((seat) => (
+                <label
+                  className={`seat-choice__option ${
+                    aceHolder === seat ? "seat-choice__option--active" : ""
+                  }`}
+                  key={seat}
+                >
+                  <input
+                    type="radio"
+                    name="hukam-player"
+                    value={seat}
+                    checked={aceHolder === seat}
+                    onChange={() => {
+                      setAceHolder(seat);
+                      setError(null);
+                    }}
+                  />
+                  <strong>{seatLabel(seat)}</strong>
+                  <small>{seat === aceHolder ? "Hukam" : "A♠"}</small>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        </div>
+
+        <div className="auto-counts" aria-label="Automatic starting counts">
+          <span>You {counts.user}</span>
+          <span>P2 {counts.p2}</span>
+          <span>P3 {counts.p3}</span>
         </div>
 
         <form className="quick-entry" onSubmit={submitAlias}>
@@ -222,7 +258,7 @@ export function SetupScreen({ onCreate, onImport }: SetupScreenProps) {
       <div className="sticky-action compact-start">
         <span>
           {remaining === 0
-            ? `${seatLabel(aceHolder)} opens with A♠`
+            ? `${seatLabel(aceHolder)} plays Hukam · A♠ opener`
             : `${remaining.toString()} card(s) left`}
         </span>
         <button
@@ -231,7 +267,7 @@ export function SetupScreen({ onCreate, onImport }: SetupScreenProps) {
           onClick={startGame}
           disabled={remaining !== 0}
         >
-          Start game
+          Deal & start
         </button>
       </div>
     </main>

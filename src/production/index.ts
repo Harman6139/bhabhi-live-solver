@@ -43,6 +43,7 @@ export {
   sha256Utf8,
   verifyProductionReleaseBundle,
   type EvaluationProductionBundle,
+  type ExecutableBehaviorModelArtifact,
   type ProductionAnalysisBinding,
   type ProductionArtifactEnvelope,
   type ProductionBundleMode,

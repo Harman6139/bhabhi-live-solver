@@ -13,12 +13,14 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { FULL_DECK } from "../../src/domain/cards";
 import type { GameCreatedEvent } from "../../src/events/game-events";
 import {
   createTimeline,
   replayTimeline,
   type GameTimeline,
 } from "../../src/events/timeline";
+import { PlayScreen } from "../../src/ui/PlayScreen";
 import { SetupScreen } from "../../src/ui/SetupScreen";
 import { TrackerScreen } from "../../src/ui/TrackerScreen";
 import {
@@ -61,8 +63,35 @@ function TrackerHarness({
   );
 }
 
+function PlayHarness() {
+  const [timeline, setTimeline] = useState(() =>
+    createTimeline({
+      type: "game-created",
+      schemaVersion: 1,
+      rules: {
+        ...COMPLETE_GAME_SETUP.rules,
+        direction: "anticlockwise",
+      },
+      userHand: FULL_DECK.filter((card) => card !== "AS").slice(0, 17),
+      startingCounts: { user: 17, p2: 18, p3: 17 },
+      aceSpadesHolder: "p2",
+    }),
+  );
+  return (
+    <PlayScreen
+      timeline={timeline}
+      sessionEpoch={0}
+      saveState="saved"
+      onTimeline={setTimeline}
+      onReplaceTimeline={setTimeline}
+      onRetrySave={() => Promise.resolve()}
+      onNewGame={() => Promise.resolve()}
+    />
+  );
+}
+
 describe("manual tracker interface", () => {
-  it("creates a valid setup from tap-selected exact cards", async () => {
+  it("derives a counterclockwise 17/17/18 setup from the extra-card seat", async () => {
     const user = userEvent.setup();
     const createdEvents: GameCreatedEvent[] = [];
     render(
@@ -74,33 +103,57 @@ describe("manual tracker interface", () => {
       />,
     );
 
-    const selected = userHandIncluding(["AS"], 18);
+    const extraCardGroup = screen.getByRole("group", {
+      name: "Who received the 18th / extra card?",
+    });
+    await user.click(
+      within(extraCardGroup).getByRole("radio", { name: /Player 3/ }),
+    );
+
+    const selected = FULL_DECK.filter((card) => card !== "AS").slice(0, 17);
     for (const card of selected) {
       const button = screen.getByRole("button", {
-        name:
-          card === "AS"
-            ? "A♠"
-            : card
-                .replace("T", "10")
-                .replace("C", "♣")
-                .replace("D", "♦")
-                .replace("H", "♥")
-                .replace("S", "♠"),
+        name: card
+          .replace("T", "10")
+          .replace("C", "♣")
+          .replace("D", "♦")
+          .replace("H", "♥")
+          .replace("S", "♠"),
       });
+      expect(button.querySelector(".playing-card")).not.toBeNull();
       await user.click(button);
     }
 
-    expect(screen.getByText("Ready")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Start live game" }));
+    expect(
+      screen.getByLabelText("Automatic starting counts"),
+    ).toHaveTextContent("You 17");
+    expect(
+      screen.getByLabelText("Automatic starting counts"),
+    ).toHaveTextContent("P3 18");
+    await user.click(screen.getByRole("button", { name: "Deal & start" }));
     const created = createdEvents[0];
     expect(created).toBeDefined();
-    expect(created?.aceSpadesHolder).toBe("user");
-    expect(created?.userHand).toHaveLength(18);
+    expect(created?.aceSpadesHolder).toBe("p2");
+    expect(created?.userHand).toHaveLength(17);
+    expect(created?.startingCounts).toEqual({ user: 17, p2: 17, p3: 18 });
     expect(created?.rules).toMatchObject({
-      direction: "clockwise",
+      direction: "anticlockwise",
       openingOffSuit: "any",
       twoPlayer: "pagat-shootout",
     });
+  });
+
+  it("lays seats around a counterclockwise table and rings the current turn", () => {
+    render(<PlayHarness />);
+
+    const table = screen.getByRole("region", {
+      name: "Counterclockwise game table. Current turn: Player 2.",
+    });
+    expect(within(table).getByText("Counterclockwise")).toBeInTheDocument();
+    expect(within(table).getByText("Turn").closest(".table-seat")).toHaveClass(
+      "table-seat--p2",
+      "table-seat--current",
+    );
   });
 
   it("records keyboard and tap plays, then supports undo, redo, and correction", async () => {

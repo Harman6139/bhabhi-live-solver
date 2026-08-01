@@ -47,6 +47,6 @@ createServer((request, response) => {
   }
 }).listen(port, "127.0.0.1", () => {
   process.stdout.write(
-    `Unvalidated Bhabhi play preview: http://127.0.0.1:${port.toString()}\n`,
+    `Bhabhi live solver: http://127.0.0.1:${port.toString()}\n`,
   );
 });

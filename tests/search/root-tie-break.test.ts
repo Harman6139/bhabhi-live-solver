@@ -14,13 +14,13 @@ const TIED: readonly RootRiskCandidate[] = [
     risk: 0.5,
   },
   {
-    action: { kind: "play-card", card: "3C" },
-    actionKey: "play:3C",
+    action: { kind: "play-card", card: "3D" },
+    actionKey: "play:3D",
     risk: 0.5,
   },
   {
-    action: { kind: "play-card", card: "4C" },
-    actionKey: "play:4C",
+    action: { kind: "play-card", card: "4H" },
+    actionKey: "play:4H",
     risk: 0.5,
   },
 ] as const;
@@ -59,6 +59,22 @@ describe("public-history root tie breaking", () => {
       selected(`fnv1a64:${index.toString(16).padStart(16, "0")}`),
     );
     expect(new Set(choices).size).toBeGreaterThan(1);
+  });
+
+  it("prefers the higher same-suit card when terminal risk is exactly tied", () => {
+    const nine: RootRiskCandidate = {
+      action: { kind: "play-card", card: "9H" },
+      actionKey: "play:9H",
+      risk: 0.25,
+    };
+    const ten: RootRiskCandidate = {
+      action: { kind: "play-card", card: "TH" },
+      actionKey: "play:TH",
+      risk: 0.25,
+    };
+    expect(
+      compareRootRiskCandidates(context("fnv1a64:2222222222222222"), ten, nine),
+    ).toBeLessThan(0);
   });
 
   it("never lets the tie key overturn a genuine risk difference", () => {

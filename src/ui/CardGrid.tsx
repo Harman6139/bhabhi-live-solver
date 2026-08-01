@@ -5,6 +5,7 @@ import {
   suitOf,
   type Card,
 } from "../domain/cards";
+import { PlayingCard } from "./PlayingCard";
 
 type CardGridProps = {
   readonly cards: readonly Card[];
@@ -64,8 +65,7 @@ export function CardGrid({
                     aria-label={formatCard(card)}
                     disabled={disabled}
                   >
-                    <span>{formatCard(card).slice(0, -1)}</span>
-                    <span aria-hidden="true">{formatCard(card).slice(-1)}</span>
+                    <PlayingCard card={card} compact={compact} decorative />
                   </button>
                 );
               })}

@@ -1,6 +1,6 @@
 # Project Progress
 
-Last updated: 2026-07-28 (America/New_York)
+Last updated: 2026-08-01 (America/New_York)
 
 ## Completion contract
 
@@ -28,7 +28,8 @@ properties rather than fields in this project's TOML.
 
 ## Active phase
 
-Phase 8 — source-freeze checkpoint immediately before clean qualification.
+Phase 9 — selected R is model-ready; the final release-validation attestation
+remains open after a Windows formatting/line-ending failure.
 
 ### Repository assessment
 
@@ -37,9 +38,15 @@ Phase 8 — source-freeze checkpoint immediately before clean qualification.
   `dc230b0 chore: establish verified phase 7 baseline`.
 - Phase 0 through Phase 7 implementation, tests, development artifacts, and
   documentation are tracked at that commit.
-- The Phase 8/9 implementation candidate is integrated and awaiting its
-  source-freeze commit. No clean qualification or final seed namespace has
-  been generated or opened.
+- Frozen scientific source `phase8-source-b82e68a` completed qualification,
+  untouched final evaluation, selected-release construction, and selected-route
+  browser latency in Actions run 30480677017.
+- The exact selected bundle is imported locally at
+  `artifacts/release/phase9-reference-release-20260729-d2/production-release-bundle.json`.
+- The compact play branch embeds the same selected bundle. It intentionally has
+  a post-freeze same-suit high-card tie preference and requests Deep analysis;
+  its UI bytes and tie policy are therefore not the byte-identical scientific
+  source used for the reported Balanced terminal rate.
 
 ### Current Phase 8 infrastructure status
 
@@ -438,7 +445,7 @@ time.
 - [x] Phase 5: uncertainty-aware terminal solver passes traps and live budget
 - [x] Phase 6: behavioral inference evaluated and enabled only if eligible
 - [x] Phase 7: exact toy agreement and eligible advanced-search result pass
-- [ ] Phase 8: clean preregistered evaluation and stored evidence complete
+- [x] Phase 8: clean preregistered evaluation and stored evidence complete
 - [ ] Phase 9: final regression, product hardening, and release criteria pass
 
 ## Commands executed
@@ -780,13 +787,51 @@ change control          ADR 0011
 - Rules sources are descriptive/community references rather than a formal
   governing body. Conflicts must be preserved in the unresolved-rule ledger.
 
+## Completed Phase 8 evidence and current readiness
+
+- Qualification: 3,264/3,264 complete games, 445 user-Bhabhi outcomes
+  (13.6336%), with zero failures, caps, or cancellations.
+- Untouched final: 3,264/3,264 complete games, 446 user-Bhabhi outcomes
+  (13.6642%), with zero failures, caps, or cancellations.
+- Selected configuration: `p8-r-hard-balanced-v1`; selection mode
+  `reference-fallback`, one-arm confirmation. This is not a comparative win
+  claim against E, B, or BE.
+- Selected-route latency: 3,400/3,400 requests and 1,000/1,000 cancellation
+  races passed. Warm wall p95 was 159.56 ms Instant, 405.33 ms Balanced, and
+  2,374.41 ms Deep. Selected latency digest:
+  `fnv1a64:30be373f4fa1e208`.
+- Release bundle SHA-256:
+  `1acc6726cf38867ed393eb86a52a9a10208b4ae50f2ddeaa2b6d01d21f5b0de9`.
+- Downloaded evidence passed 20/20 internal checksum entries locally.
+
+B/BE training and support computation completed, but production sealing
+correctly rejected 10,338 raw zero-feasible-truth observations. Repeating the
+same compute is not justified. The completed shards remain salvage candidates
+for a corrected deterministic rescore, but B and BE are not model-ready and no
+performance claim is made for them. E remains an evaluation-only exact attempt
+with R fallback and is not the selected release.
+
 ## Next step
 
-Commit the clean v2 source candidate, run the 12-command frozen source
-validation, and only then open qualification. Execute R-only qualification
-terminal as independently durable shards alongside browser latency. After all
-shards exist, verify checksums and exact coordinate coverage, merge in frozen
-canonical order, and continue with selection/final freeze, fresh final terminal
-and latency, final attestation, selected-release build/latency, documentation
-finalization, and the create-exclusive Phase 9 release-validation attestation.
-Do not modify scientific source after qualification opens.
+Keep R as the ready production engine. Before any new Actions run, fix and
+locally reproduce the Windows checkout formatting issue that caused the first
+Phase 9 command (`npm run format:check`) to report all 304 files. Then run one
+focused Phase 9 validation/attestation workflow reusing the existing selected
+release artifact; no Phase 8 terminal, training, or latency recomputation is
+needed. Separately diagnose B/BE zero-feasible truths before deciding whether a
+shard-only rescore is scientifically valid.
+
+## Practical play finish (2026-08-01)
+
+- Replaced the tracker-heavy surface with a compact counterclockwise felt table,
+  real playing-card faces, a current-turn ring, and one top recommendation.
+- Setup now independently records the 18th/extra-card recipient and Hukam/A♠
+  opener, then derives the exact 18/17/17 counts without false inference.
+- Thulla transfers remain reducer-owned and are shown with the resulting counts.
+- Packaged four local builds: formally selected R, recommended practical E, and
+  explicitly unsealed practical B/BE built from the completed fitted behavior
+  artifact with fixed support pseudocount 1.
+- Typecheck and 21 focused model/release/rules/UI tests passed. A real-browser
+  smoke produced a Deep top move with zero browser console errors.
+- This practical finish does not claim the outstanding full Phase 9 attestation
+  or a measured win rate for E, B, BE, Deep, or the post-freeze tie preference.

@@ -29,35 +29,39 @@ npm run build
 npm run preview
 ```
 
-An ordinary source build intentionally has no selected solver release. It still
-supports setup, tracking, corrections, persistence, import, and export. A live
-recommendation is enabled only when a cryptographically verified
-`release-selected` bundle is injected:
+The prepared local play build is documented in `PLAY-PREVIEW.md`; its default
+`dist/` uses practical E (exact endgame with R fallback) and is ready to serve:
 
 ```powershell
-$env:BHABHI_RELEASE_BUNDLE_PATH = (Resolve-Path "artifacts/release/phase9-reference-release-20260728-a/production-release-bundle.json")
+node scripts/serve-play-preview.mjs dist
+```
+
+To reproduce the formally selected R build instead, inject its verified bundle:
+
+```powershell
+$env:BHABHI_RELEASE_BUNDLE_PATH = (Resolve-Path "artifacts/release/phase9-reference-release-20260729-d2/production-release-bundle.json")
 $env:BHABHI_RELEASE_EXPECT_MODE = "release-selected"
 npm run build
 npm run preview
 ```
 
+The selected R bundle from Actions run 30480677017 is the strongest formally
+qualified release. Its untouched-final Bhabhi rate was 446/3,264 (13.66%) under
+the Balanced configuration. E is the recommended practical build because it
+attempts exact endgame search and otherwise falls back to R. B and BE are also
+packaged for local experimentation using the real fitted behavior artifact,
+but remain explicitly unsealed and have no win-rate claim.
+
 ## Play
 
-1. Select the rule profile and enter your exact starting hand.
-2. Record each public play, pickup, waste draw, player draw, or take-hand event.
-3. At each user decision, choose an analysis budget. The worker first publishes
-   an Instant result, then refines it when applicable.
-4. Read the ranked legal alternatives, terminal-risk estimate, interval or
-   exactness label, causal explanation, and public-only diagnostics.
-5. Use **Correct**, **Undo**, or **Redo** at any time. Analysis is invalidated
-   immediately and rebuilt from the corrected public history.
-6. Export the canonical archive when you want a portable local backup.
+1. Choose who received the 18th/extra card and who plays Hukam (A♠ opener).
+2. Enter your exact starting hand; the other hand counts are automatic.
+3. Record each observed card. New compact sessions run counterclockwise.
+4. On your turn, use the single card shown as **Top engine move**.
+5. Use **Undo** to correct the latest entry, and export the game for a backup.
 
-The default is the Pagat-style clockwise three-player profile documented in
-`docs/bhabhi-research.md`. Supported alternatives cover opening mode,
-direction, take-hand rules, zero-card power, waste/draw handling, and the
-implemented heads-up transition profiles. Unsupported household variants are
-listed in that research ledger.
+The rules engine records off-suit thulla events and transfers every table card
+to the correct picker before updating all three counts.
 
 ## Test
 

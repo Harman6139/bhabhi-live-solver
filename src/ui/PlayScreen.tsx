@@ -1,6 +1,6 @@
-import { useMemo, useState, type SyntheticEvent } from "react";
+import { useMemo, useState, type ReactNode, type SyntheticEvent } from "react";
 
-import { formatCard, parseCard, type Card } from "../domain/cards";
+import { parseCard, type Card } from "../domain/cards";
 import type { Seat } from "../domain/seats";
 import {
   appendTimelineEvent,
@@ -14,6 +14,7 @@ import type {
   RuleEffect,
 } from "../public/public-state";
 import { CardGrid } from "./CardGrid";
+import { PlayingCard } from "./PlayingCard";
 import { RecommendationPanel } from "./RecommendationPanel";
 import {
   availablePendingCards,
@@ -63,34 +64,66 @@ function latestPickup(
   );
 }
 
-function TurnCircle({ state }: { readonly state: PublicInformationState }) {
+function GameTable({
+  state,
+  children,
+}: {
+  readonly state: PublicInformationState;
+  readonly children: ReactNode;
+}) {
   const seats = ["user", "p2", "p3"] as const;
+  const counterclockwise = state.rules.direction === "anticlockwise";
   return (
     <section
-      className="turn-circle"
-      aria-label={`Current turn: ${
+      className="game-table"
+      aria-label={`${counterclockwise ? "Counterclockwise" : "Clockwise"} game table. Current turn: ${
         state.turn === null ? "none" : seatLabel(state.turn)
-      }`}
+      }.`}
     >
-      <span className="turn-circle__arrow" aria-hidden="true">
-        ↻
+      <div className="game-table__felt" aria-hidden="true" />
+      <span className="game-table__direction">
+        <b aria-hidden="true">{counterclockwise ? "↺" : "↻"}</b>
+        {counterclockwise ? "Counterclockwise" : "Clockwise"}
       </span>
       {seats.map((seat) => {
         const active = state.activeSeats.includes(seat);
         return (
           <div
-            className={`turn-seat turn-seat--${seat} ${
-              state.turn === seat ? "turn-seat--current" : ""
-            } ${active ? "" : "turn-seat--out"}`}
+            className={`table-seat table-seat--${seat} ${
+              state.turn === seat ? "table-seat--current" : ""
+            } ${active ? "" : "table-seat--out"}`}
             key={seat}
             aria-current={state.turn === seat ? "step" : undefined}
           >
-            <strong>{seat === "user" ? "You" : seat.toUpperCase()}</strong>
+            {state.turn === seat ? (
+              <span className="turn-token">Turn</span>
+            ) : null}
+            <span className="table-seat__avatar" aria-hidden="true">
+              {seat === "user" ? "Y" : seat === "p2" ? "2" : "3"}
+            </span>
+            <strong>{seatLabel(seat)}</strong>
             <span>{state.handCounts[seat]} cards</span>
-            {state.power === seat ? <small>Power</small> : null}
+            {state.power === seat ? <small>Power / lead</small> : null}
           </div>
         );
       })}
+
+      {state.trick?.plays.map((play) => (
+        <div
+          className={`table-play table-play--${play.seat}`}
+          key={play.eventIndex}
+          aria-label={`${seatLabel(play.seat)} played`}
+        >
+          <PlayingCard card={play.card} compact />
+        </div>
+      ))}
+
+      <div className="game-table__center">
+        {state.trick?.plays.length ? null : (
+          <span className="fresh-trick">Fresh trick</span>
+        )}
+        {children}
+      </div>
     </section>
   );
 }
@@ -98,9 +131,9 @@ function TurnCircle({ state }: { readonly state: PublicInformationState }) {
 function pickupNotice(
   pickup: Extract<RuleEffect, { type: "trick-picked-up" }>,
 ): string {
-  return `Thulla registered: ${seatLabel(pickup.thullaBy)} played off-suit; ${seatLabel(
+  return `Thulla: ${seatLabel(pickup.thullaBy)} played off-suit · ${seatLabel(
     pickup.picker,
-  )} picked up all ${pickup.cards.length.toString()} table cards.`;
+  )} picked up ${pickup.cards.length.toString()} cards.`;
 }
 
 export function PlayScreen({
@@ -201,10 +234,15 @@ export function PlayScreen({
 
   return (
     <main className="app-shell play-shell">
-      <header className="play-header">
-        <div>
-          <p className="eyebrow">Bhabhi live solver</p>
-          <h1>{actionPrompt(state)}</h1>
+      <header className="play-header play-header--table">
+        <div className="play-brand">
+          <span className="play-brand__mark" aria-hidden="true">
+            B
+          </span>
+          <div>
+            <p className="eyebrow">Bhabhi live solver</p>
+            <h1>{actionPrompt(state)}</h1>
+          </div>
         </div>
         <div className="play-header__actions">
           <span className={`save-dot save-dot--${saveState}`}>
@@ -235,50 +273,36 @@ export function PlayScreen({
         </div>
       </header>
 
-      <div className="play-top-grid">
-        <TurnCircle state={state} />
-        <section className="trick-table" aria-label="Cards on the table">
-          <span className="trick-table__label">Table</span>
-          <div className="trick-table__cards">
-            {state.trick?.plays.length ? (
-              state.trick.plays.map((play) => (
-                <span className="table-card" key={play.eventIndex}>
-                  <small>
-                    {play.seat === "user" ? "You" : play.seat.toUpperCase()}
-                  </small>
-                  <strong>{formatCard(play.card)}</strong>
-                </span>
-              ))
+      <GameTable state={state}>
+        {state.turn === "user" && state.pendingAction === null ? (
+          <div className="table-recommendation" aria-live="polite">
+            {liveAnalysis.analysis === null ? (
+              <div className="recommendation-loading">
+                <span className="thinking-dot" aria-hidden="true" />
+                <strong>
+                  {liveAnalysis.status === "failure" ||
+                  liveAnalysis.status === "unavailable"
+                    ? "Engine unavailable"
+                    : "Finding your move…"}
+                </strong>
+                {liveAnalysis.message === null ? null : (
+                  <small>{liveAnalysis.message}</small>
+                )}
+              </div>
             ) : (
-              <span className="muted">Fresh trick</span>
+              <RecommendationPanel
+                analysis={liveAnalysis.analysis}
+                refining={liveAnalysis.refining}
+              />
             )}
           </div>
-        </section>
-      </div>
-
-      {state.turn === "user" && state.pendingAction === null ? (
-        <section className="top-move-slot" aria-live="polite">
-          {liveAnalysis.analysis === null ? (
-            <div className="recommendation-loading">
-              <span className="thinking-dot" aria-hidden="true" />
-              <strong>
-                {liveAnalysis.status === "failure" ||
-                liveAnalysis.status === "unavailable"
-                  ? "Recommendation unavailable"
-                  : "Calculating the strongest move…"}
-              </strong>
-              {liveAnalysis.message === null ? null : (
-                <small>{liveAnalysis.message}</small>
-              )}
-            </div>
-          ) : (
-            <RecommendationPanel
-              analysis={liveAnalysis.analysis}
-              refining={liveAnalysis.refining}
-            />
-          )}
-        </section>
-      ) : null}
+        ) : (
+          <div className="table-turn-prompt">
+            <span className="eyebrow">Now playing</span>
+            <strong>{actionPrompt(state)}</strong>
+          </div>
+        )}
+      </GameTable>
 
       {notice === null ? null : (
         <p
@@ -296,6 +320,17 @@ export function PlayScreen({
         </p>
       )}
 
+      {pickup === null ? null : (
+        <aside className="thulla-receipt" aria-label="Latest thulla transfer">
+          <strong>Thulla registered</strong>
+          <span>{pickupNotice(pickup)}</span>
+          <small>
+            You {state.handCounts.user} · P2 {state.handCounts.p2} · P3{" "}
+            {state.handCounts.p3}
+          </small>
+        </aside>
+      )}
+
       {state.status === "complete" ? (
         <section className="panel game-result">
           <p className="eyebrow">Game over</p>
@@ -308,11 +343,13 @@ export function PlayScreen({
           </h2>
         </section>
       ) : (
-        <section className="panel move-entry">
+        <section className="move-entry table-controls">
           <div className="move-entry__heading">
             <div>
               <p className="eyebrow">
-                {state.turn === "user" ? "Legal cards" : "Record actual play"}
+                {state.turn === "user"
+                  ? "Your hand · legal cards"
+                  : "Record actual play"}
               </p>
               <h2>{actionPrompt(state)}</h2>
             </div>
@@ -329,34 +366,25 @@ export function PlayScreen({
               </button>
             </form>
           </div>
-          {state.turn !== "user" && state.pendingAction === null ? (
-            <p className="entry-clarifier">
-              These are unaccounted cards the player could reveal—not a claim
-              about their hand. Tap only the card you saw played.
-            </p>
-          ) : null}
-          <CardGrid
-            cards={candidateCards}
-            label={
-              state.turn === "user"
-                ? "Your legal cards"
-                : "Unaccounted cards available for observed entry"
-            }
-            onCard={commitCard}
-            compact
-          />
+          {state.turn === "user" && state.pendingAction === null ? (
+            <CardGrid
+              cards={candidateCards}
+              label="Your legal cards"
+              onCard={commitCard}
+              compact
+            />
+          ) : (
+            <details className="observed-card-drawer">
+              <summary>Or tap the card you saw</summary>
+              <CardGrid
+                cards={candidateCards}
+                label="Cards available for observed entry"
+                onCard={commitCard}
+                compact
+              />
+            </details>
+          )}
         </section>
-      )}
-
-      {pickup === null ? null : (
-        <details className="transfer-receipt">
-          <summary>Latest thulla transfer</summary>
-          <p>{pickupNotice(pickup)}</p>
-          <p>
-            Counts now: You {state.handCounts.user} · P2 {state.handCounts.p2} ·
-            P3 {state.handCounts.p3}
-          </p>
-        </details>
       )}
     </main>
   );
