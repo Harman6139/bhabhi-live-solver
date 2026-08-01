@@ -240,7 +240,7 @@ export function PlayScreen({
             B
           </span>
           <div>
-            <p className="eyebrow">Bhabhi live solver</p>
+            <p className="eyebrow">Getaway live solver</p>
             <h1>{actionPrompt(state)}</h1>
           </div>
         </div>

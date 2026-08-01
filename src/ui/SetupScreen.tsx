@@ -130,7 +130,7 @@ export function SetupScreen({ onCreate, onImport }: SetupScreenProps) {
       <header className="compact-hero">
         <div>
           <p className="eyebrow">3 players · counterclockwise ↺ · local only</p>
-          <h1>Bhabhi live solver</h1>
+          <h1>Getaway live solver</h1>
         </div>
         <button
           className="text-button"
